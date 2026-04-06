@@ -6,14 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup-db": "npx tsx scripts/setup-db.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.20.0",
+    "canvas": "^3.2.3",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
+    "face-api.js": "^0.22.2",
     "jsonwebtoken": "^9.0.3",
     "next": "16.2.1",
     "pg": "^8.20.0",
@@ -25,9 +29,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

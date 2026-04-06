@@ -1,6 +1,6 @@
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { authApi } from '@/utils/api';
-import { isFirstLaunch, isOfflineMode } from '@/utils/storage';
+import { checkBackendConnection } from '@/utils/storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -34,27 +34,13 @@ export default function RootLayout() {
 
   const checkAuthStatus = async () => {
     try {
-      const firstLaunch = await isFirstLaunch();
-      
-      // If not first launch, check if user is logged in or in offline mode
-      if (!firstLaunch) {
-        const offline = await isOfflineMode();
-        if (offline) {
-          // User is in offline mode, skip login
-          setShouldShowLogin(false);
-          return;
-        }
-        
-        // Check if user has valid auth token
-        const isLoggedIn = await authApi.isLoggedIn();
-        if (isLoggedIn) {
-          // User is logged in, skip login
-          setShouldShowLogin(false);
-          return;
-        }
+      // Direct auth check - no offline or first launch mode anymore
+      const isLoggedIn = await authApi.isLoggedIn();
+      if (isLoggedIn) {
+        setShouldShowLogin(false);
+        return;
       }
-      
-      // Show login for first launch or if not authenticated
+
       setShouldShowLogin(true);
     } catch (error) {
       console.log('Auth check failed, showing login', error);
@@ -71,7 +57,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack initialRouteName="index">
+      <Stack initialRouteName="index" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="scanner" options={{ headerShown: false }} />
@@ -79,6 +65,7 @@ export default function RootLayout() {
         <Stack.Screen name="attendance" options={{ headerShown: false }} />
         <Stack.Screen name="export" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen name="classes" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

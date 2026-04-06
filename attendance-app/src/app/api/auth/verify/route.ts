@@ -1,38 +1,15 @@
-import jwt from 'jsonwebtoken';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyUser } from '@/lib/auth-utils';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { token } = await request.json();
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Token is required' },
-        { status: 400 }
-      );
+    const user = await verifyUser(request);
+    if (!user) {
+      return NextResponse.json({ valid: false }, { status: 401 });
     }
-
-    // Verify token
-    const decoded = jwt.verify(token, JWT_SECRET) as {
-      userId: number;
-      email: string;
-      name: string;
-    };
-
-    return NextResponse.json({
-      valid: true,
-      user: {
-        id: decoded.userId,
-        email: decoded.email,
-        name: decoded.name,
-      },
-    });
+    
+    return NextResponse.json({ valid: true, user });
   } catch (error) {
-    return NextResponse.json(
-      { valid: false, error: 'Invalid or expired token' },
-      { status: 401 }
-    );
+    return NextResponse.json({ valid: false }, { status: 401 });
   }
 }

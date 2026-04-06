@@ -1,10 +1,14 @@
-import { endTodayAttendance, findStudentByBarcode, getAttendanceStats, getStudents, markAttendance, Student } from '@/utils/storage';
+import { attendanceApi, statsApi, studentsApi } from '@/utils/api';
+import { globalState } from '@/utils/state';
+import { Student } from '@/utils/types';
 import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
-import { useRouter } from 'expo-router';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { Alert, StyleSheet, Text, TouchableOpacity, Vibration, View, ActivityIndicator, Modal, TextInput } from 'react-native';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,17 +16,116 @@ export default function ScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [lastScanned, setLastScanned] = useState<{ student: Student; status: string } | null>(null);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const classId = params.classId as string;
+  const className = params.className as string;
+  
+  // Local-First State
+  const studentsRef = useRef<Student[]>([]);
+  const pendingAttendanceRef = useRef<Set<string>>(new Set());
+  const alreadyMarkedRef = useRef<Set<string>>(new Set());
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSyncingRef = useRef(false);
+  const cameraRef = useRef<CameraView>(null);
+
+  // Add Student State
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentRoll, setNewStudentRoll] = useState('');
+  const [pendingBarcode, setPendingBarcode] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Face Recognition State
+  const [isFaceMode, setIsFaceMode] = useState(false);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!classId) return;
+    try {
+      setLoading(true);
+      const [statsData, studentsData, attendanceData] = await Promise.all([
+        statsApi.get(classId),
+        studentsApi.getAll(classId),
+        attendanceApi.getAll(classId) // Fetch existing records for today
+      ]);
+      
+      studentsRef.current = studentsData;
+      
+      // Track who is already marked present today
+      const today = new Date().toISOString().split('T')[0];
+      const todayPresent = attendanceData
+        .filter(r => r.date === today && r.status === 'present')
+        .map(r => r.studentId);
+      
+      alreadyMarkedRef.current = new Set(todayPresent);
+      
+      setStats({
+        total: statsData.totalStudents,
+        present: statsData.present,
+        absent: statsData.absent
+      });
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      setLoading(false);
+    }
+  }, [classId]);
+
+  const syncToBackend = useCallback(async () => {
+    if (pendingAttendanceRef.current.size === 0 || isSyncingRef.current || !classId) return;
+    
+    isSyncingRef.current = true;
+    const idsToSync = Array.from(pendingAttendanceRef.current);
+    const today = new Date().toISOString().split('T')[0];
+    
+    try {
+      console.log('Syncing attendance to backend:', idsToSync.length);
+      await attendanceApi.bulkMark(idsToSync, classId, today);
+      
+      // Clear synced IDs
+      idsToSync.forEach(id => pendingAttendanceRef.current.delete(id));
+      globalState.needsDashboardRefresh = true;
+    } catch (error) {
+      console.error('Failed to sync attendance:', error);
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [classId]);
+
+  // Handle auto-sync after 5s of inactivity
+  const scheduleSync = useCallback(() => {
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      syncToBackend();
+    }, 5000) as any;
+  }, [syncToBackend]);
 
   useEffect(() => {
-    loadStats();
-  }, []);
+    if (!classId) {
+      Alert.alert('Error', 'No class selected');
+      router.back();
+      return;
+    }
+    loadData();
+    
+    // Cleanup: sync on unmount
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+      syncToBackend();
+    };
+  }, [classId, loadData, syncToBackend]);
 
-  const loadStats = async () => {
-    const attendanceStats = await getAttendanceStats();
-    setStats(attendanceStats);
-  };
+  // Sync when screen loses focus
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        syncToBackend();
+      };
+    }, [syncToBackend])
+  );
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -31,51 +134,192 @@ export default function ScannerScreen() {
   }, [permission]);
 
   const handleBarcodeScanned = useCallback(async (result: BarcodeScanningResult) => {
-    if (scanned) return;
+    if (scanned || !classId) return;
     
-    setScanned(true);
-    Vibration.vibrate(200);
-    
-    const barcode = result.data;
-    const student = await findStudentByBarcode(barcode);
+    // Trim and normalize scanned barcode
+    const scannedBarcode = result.data.trim();
+    console.log(`Scanned barcode: "${scannedBarcode}"`);
+    console.log(`Available students: ${studentsRef.current.length}`);
+
+    // INSTANT LOCAL LOOKUP with normalized comparison
+    const student = studentsRef.current.find(s => 
+      s.barcode?.toString().trim().toLowerCase() === scannedBarcode.toLowerCase()
+    );
     
     if (student) {
-      const record = await markAttendance(student.id, 'present');
-      setLastScanned({ student, status: record.status });
-      await loadStats();
+      console.log(`Student found: ${student.name}`);
+      // INSTANT UI UPDATE
+      Vibration.vibrate(200);
+      setLastScanned({ student, status: 'present' });
+      
+      // ONLY increment present count if not already marked today (in DB or locally)
+      if (!alreadyMarkedRef.current.has(student.id) && !pendingAttendanceRef.current.has(student.id)) {
+        console.log(`Marking as NEW local scan: ${student.name}`);
+        pendingAttendanceRef.current.add(student.id);
+        setStats(prev => ({
+          ...prev,
+          present: prev.present + 1
+        }));
+      } else {
+        console.log(`Already marked present: ${student.name}`);
+      }
+      
+      setScanned(true);
+      
+      // Auto-reset for next scan
+      setTimeout(() => {
+        setScanned(false);
+        setLastScanned(null);
+      }, 2000);
+      
+      // Schedule sync with backend
+      scheduleSync();
+      
+    } else {
+      console.warn(`Student not found for barcode: "${scannedBarcode}"`);
+      Vibration.vibrate([0, 100, 50, 100]);
+      setScanned(true); // Pause scanning
       
       Alert.alert(
-        'Attendance Marked',
-        `${student.name} (${student.rollNumber}) marked as Present`,
-        [{ text: 'OK', onPress: () => setScanned(false) }]
-      );
-    } else {
-      Alert.alert(
         'Student Not Found',
-        `No student found with barcode: ${barcode}`,
-        [{ text: 'OK', onPress: () => setScanned(false) }]
+        `No student found with barcode: ${scannedBarcode}.\n\nWould you like to add this student to ${className || 'this class'}?`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => setScanned(false) },
+          { 
+            text: 'Add Student', 
+            onPress: () => {
+              setPendingBarcode(scannedBarcode);
+              setIsAddModalVisible(true);
+            }
+          }
+        ]
       );
     }
-  }, [scanned]);
+  }, [scanned, classId, className, scheduleSync]);
+
+  const handleSaveNewStudent = async () => {
+    if (!newStudentName.trim() || !newStudentRoll.trim() || !classId) {
+      Alert.alert('Error', 'Please enter both Name and Roll Number');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      const student = await studentsApi.create(
+        newStudentName.trim(),
+        newStudentRoll.trim(),
+        pendingBarcode,
+        classId
+      );
+
+      // 1. Add to local cache
+      studentsRef.current = [...studentsRef.current, student];
+      
+      // 2. Mark as present locally
+      console.log(`Newly created student marked present: ${student.name}`);
+      pendingAttendanceRef.current.add(student.id);
+      setStats(prev => ({
+        ...prev,
+        total: prev.total + 1,
+        present: prev.present + 1
+      }));
+      setLastScanned({ student, status: 'present' });
+
+      // 3. Reset and Close
+      setIsAddModalVisible(false);
+      setNewStudentName('');
+      setNewStudentRoll('');
+      setPendingBarcode('');
+      setScanned(false);
+      
+      // 4. Sync
+      syncToBackend();
+      globalState.needsDashboardRefresh = true;
+      Vibration.vibrate(200);
+      
+    } catch (error) {
+      console.error('Failed to create student:', error);
+      Alert.alert('Error', 'Failed to add student. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleFaceRecognized = async () => {
+    if (!cameraRef.current || isRecognizing || !classId) return;
+
+    try {
+      setIsRecognizing(true);
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (photo?.uri) {
+        // Resize to 640px height to keep it small but clear for face-api
+        const manipulated = await manipulateAsync(
+          photo.uri,
+          [{ resize: { height: 640 } }],
+          { base64: true, compress: 0.7, format: SaveFormat.JPEG }
+        );
+
+        const result = await attendanceApi.recognizeFace(
+          classId, 
+          `data:image/jpeg;base64,${manipulated.base64}`
+        );
+
+        if (result.success) {
+          Vibration.vibrate(200);
+          setLastScanned({ student: result.student, status: 'present' });
+          
+          if (!alreadyMarkedRef.current.has(result.student.id)) {
+            setStats(prev => ({
+              ...prev,
+              present: prev.present + 1
+            }));
+            alreadyMarkedRef.current.add(result.student.id);
+            globalState.needsDashboardRefresh = true;
+          }
+
+          // Reset scanned info after confirmation
+          setTimeout(() => {
+            setLastScanned(null);
+          }, 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Face recognition failed:', error);
+      Alert.alert('Recognition Failed', 'Face not clearly detected or not recognized.');
+    } finally {
+      setIsRecognizing(false);
+    }
+  };
 
   const handleEndAttendance = () => {
+    if (!classId) return;
     const unmarked = stats.total - stats.present - stats.absent;
     
     Alert.alert(
       'End Today\'s Attendance',
-      `${stats.present} students marked present.\n${unmarked} students will be marked absent.\n\nAre you sure you want to end today's attendance?`,
+      `${stats.present} students marked present.\n${unmarked} students will be marked absent for ${className || 'this class'}.\n\nAre you sure?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'End Attendance',
           style: 'destructive',
           onPress: async () => {
-            const result = await endTodayAttendance();
-            await loadStats();
-            Alert.alert(
-              'Attendance Ended',
-              `${result.markedAbsent} students marked as absent.\nTotal attendance: ${result.alreadyMarked + result.markedAbsent} students.`
-            );
+            try {
+              const result = await attendanceApi.endToday(classId);
+              globalState.needsDashboardRefresh = true;
+              await loadData();
+              Alert.alert(
+                'Attendance Ended',
+                `${result.markedAbsent} students marked as absent in ${className || 'class'}.`
+              );
+            } catch (error) {
+              console.error('Failed to end attendance:', error);
+              Alert.alert('Error', 'Failed to end attendance session');
+            }
           },
         },
       ]
@@ -102,29 +346,63 @@ export default function ScannerScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan Attendance</Text>
-        <View style={styles.placeholder} />
+        <Text style={styles.headerTitle}>{isFaceMode ? 'Face Recognition' : 'Barcode Scanner'}</Text>
+        <TouchableOpacity 
+          onPress={() => setIsFaceMode(!isFaceMode)} 
+          style={[styles.modeToggle, isFaceMode && styles.activeModeToggle]}
+        >
+          <Ionicons name={isFaceMode ? "barcode" : "person"} size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       {/* Camera */}
       <View style={styles.cameraContainer}>
         <CameraView
+          ref={cameraRef}
           style={styles.camera}
-          facing="back"
-          barcodeScannerSettings={{
+          facing={isFaceMode ? "front" : "back"}
+          barcodeScannerSettings={isFaceMode ? undefined : {
             barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'pdf417'],
           }}
-          onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+          onBarcodeScanned={scanned || isFaceMode ? undefined : handleBarcodeScanned}
         >
           {/* Scan Overlay */}
           <View style={styles.overlay}>
-            <View style={styles.scanArea}>
-              <View style={[styles.corner, styles.topLeft]} />
-              <View style={[styles.corner, styles.topRight]} />
-              <View style={[styles.corner, styles.bottomLeft]} />
-              <View style={[styles.corner, styles.bottomRight]} />
-            </View>
-            <Text style={styles.scanText}>Align barcode within the frame</Text>
+            {loading ? (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading Students...</Text>
+              </View>
+            ) : (
+              <>
+                <View style={[styles.scanArea, isFaceMode && styles.faceScanArea]}>
+                  <View style={[styles.corner, styles.topLeft, isFaceMode && styles.faceCorner]} />
+                  <View style={[styles.corner, styles.topRight, isFaceMode && styles.faceCorner]} />
+                  <View style={[styles.corner, styles.bottomLeft, isFaceMode && styles.faceCorner]} />
+                  <View style={[styles.corner, styles.bottomRight, isFaceMode && styles.faceCorner]} />
+                </View>
+                <Text style={styles.scanText}>
+                  {isFaceMode ? 'Align face in the frame' : 'Align barcode within the frame'}
+                </Text>
+
+                {isFaceMode && (
+                  <TouchableOpacity 
+                    style={[styles.recognizeButton, isRecognizing && styles.disabledButton]}
+                    onPress={handleFaceRecognized}
+                    disabled={isRecognizing}
+                  >
+                    {isRecognizing ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="scan-circle" size={32} color="#fff" />
+                        <Text style={styles.recognizeButtonText}>Recognize Face</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
           </View>
         </CameraView>
       </View>
@@ -191,6 +469,72 @@ export default function ScannerScreen() {
           </TouchableOpacity>
         </Animated.View>
       )}
+      {/* Add Student Modal */}
+      <Modal
+        visible={isAddModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setIsAddModalVisible(false);
+          setScanned(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add New Student</Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsAddModalVisible(false);
+                  setScanned(false);
+                }}
+              >
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}> Register barcode: {pendingBarcode} </Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Full Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: John Doe"
+                value={newStudentName}
+                onChangeText={setNewStudentName}
+                placeholderTextColor="#94a3b8"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Roll Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 101"
+                value={newStudentRoll}
+                onChangeText={setNewStudentRoll}
+                placeholderTextColor="#94a3b8"
+                keyboardType="numeric"
+              />
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
+              onPress={handleSaveNewStudent}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="person-add" size={20} color="#fff" />
+                  <Text style={styles.saveButtonText}>Add & Mark Present</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -232,6 +576,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingOverlay: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    padding: 24,
+    borderRadius: 20,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   scanArea: {
     width: 280,
@@ -430,5 +786,113 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    minHeight: 400,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 24,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  saveButton: {
+    backgroundColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 16,
+    gap: 8,
+    marginTop: 8,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modeToggle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeModeToggle: {
+    backgroundColor: '#3b82f6',
+  },
+  faceScanArea: {
+    borderRadius: 140,
+    borderStyle: 'dashed',
+  },
+  faceCorner: {
+    borderColor: '#4ade80',
+  },
+  recognizeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 30,
+    marginTop: 40,
+    gap: 10,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  recognizeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

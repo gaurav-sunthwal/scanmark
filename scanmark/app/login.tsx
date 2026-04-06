@@ -1,5 +1,5 @@
 import { authApi } from '@/utils/api';
-import { markAppLaunched, setOfflineMode } from '@/utils/storage';
+import { markAppLaunched } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -24,9 +24,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await authApi.login(email, password);
-      // Mark app as launched and disable offline mode
       await markAppLaunched();
-      await setOfflineMode(false);
       Alert.alert('Success', 'Logged in successfully!');
       router.replace('/');
     } catch (error) {
@@ -36,23 +34,7 @@ export default function LoginScreen() {
     }
   };
 
-  const handleUseOffline = async () => {
-    Alert.alert(
-      'Use Offline Mode',
-      'You will use the app in offline mode. Your data will be stored locally on this device only. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Continue Offline', 
-          onPress: async () => {
-            await markAppLaunched();
-            await setOfflineMode(true);
-            router.replace('/');
-          }
-        },
-      ]
-    );
-  };
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -123,25 +105,14 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.skipButton} onPress={handleUseOffline}>
-              <Ionicons name="cloud-offline-outline" size={20} color="#64748b" />
-              <Text style={styles.skipButtonText}>Use Offline Mode</Text>
+            <TouchableOpacity style={styles.signUpLink} onPress={() => router.push('/register')}>
+              <Text style={styles.signUpLinkText}>Don't have an account? <Text style={styles.signUpHighlight}>Sign Up</Text></Text>
             </TouchableOpacity>
-            
-            <View style={styles.offlineInfo}>
-              <Ionicons name="information-circle-outline" size={16} color="#94a3b8" />
-              <Text style={styles.offlineInfoText}>
-                Offline mode stores data locally. You can login later from Settings.
-              </Text>
-            </View>
+
+
           </Animated.View>
 
-          {/* Demo Credentials */}
-          <Animated.View entering={FadeInDown.delay(300)} style={styles.demoContainer}>
-            <Text style={styles.demoTitle}>Demo Credentials:</Text>
-            <Text style={styles.demoText}>Email: admin@example.com</Text>
-            <Text style={styles.demoText}>Password: admin123</Text>
-          </Animated.View>
+
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -234,48 +205,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  skipButton: {
-    flexDirection: 'row',
+
+  signUpLink: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
+    marginVertical: 8,
   },
-  skipButtonText: {
+  signUpLinkText: {
     fontSize: 16,
     color: '#64748b',
-    fontWeight: '600',
   },
-  offlineInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    gap: 6,
-    paddingHorizontal: 16,
-  },
-  offlineInfoText: {
-    fontSize: 12,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
-  demoContainer: {
-    marginTop: 48,
-    padding: 16,
-    backgroundColor: '#fef3c7',
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-  },
-  demoTitle: {
-    fontSize: 14,
+  signUpHighlight: {
+    color: '#3b82f6',
     fontWeight: 'bold',
-    color: '#92400e',
-    marginBottom: 8,
   },
-  demoText: {
-    fontSize: 13,
-    color: '#92400e',
-    fontFamily: 'monospace',
-  },
+
+
 });

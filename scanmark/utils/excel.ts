@@ -1,7 +1,8 @@
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
-import { getAttendance, getStudents, Student } from './storage';
+import { attendanceApi, studentsApi } from './api';
+import { Student } from './types';
 
 export interface ExcelStudent {
   'Student Name': string;
@@ -21,16 +22,23 @@ export async function parseExcelFile(base64Data: string): Promise<Student[]> {
     console.log('First row:', jsonData[0]);
     
     const students: Student[] = jsonData.map((row, index) => {
-      // Try multiple possible column names for each field
-      const name = row['Student Name'] || row['Name'] || row['student_name'] || row['studentname'] || row['STUDENT NAME'] || '';
-      const rollNumber = row['Roll Number'] || row['RollNumber'] || row['Roll'] || row['ID'] || row['roll_number'] || row['Roll No'] || row['RollNo'] || String(index + 1);
-      const barcode = row['Barcode'] || row['Barcode Value'] || row['BarcodeValue'] || row['PRN'] || row['prn'] || row['barcode'] || row['Id'] || row['ID'] || '';
+      // Try multiple possible column names for each field with case-insensitive check if needed
+      const name = row['Student Name'] || row['Name'] || row['student_name'] || row['Full Name'] || row['FullName'] || row['STUDENT NAME'] || row['name'] || '';
+      const rollNumber = row['Roll Number'] || row['RollNumber'] || row['Roll No'] || row['RollNo'] || row['Roll'] || row['ID'] || row['Id'] || row['roll_number'] || String(index + 1);
+      
+      // Extensive barcode column detection
+      const barcode = row['Barcode'] || row['Barcode Value'] || row['BarcodeValue'] || row['PRN'] || row['prn'] || 
+                     row['barcode'] || row['QR'] || row['qr'] || row['UID'] || row['uid'] || 
+                     row['Student ID'] || row['StudentID'] || row['Id'] || row['ID'] || '';
+      
+      const finalRoll = rollNumber.toString().trim();
+      const finalBarcode = (barcode.toString().trim() || finalRoll); // Fallback to roll number if barcode is empty
       
       return {
         id: `student_${Date.now()}_${index}`,
         name: name.trim(),
-        rollNumber: rollNumber.toString().trim(),
-        barcode: barcode.toString().trim(),
+        rollNumber: finalRoll,
+        barcode: finalBarcode,
       };
     }).filter(s => s.name && s.name.length > 0);
     
@@ -42,11 +50,13 @@ export async function parseExcelFile(base64Data: string): Promise<Student[]> {
   }
 }
 
-export async function exportAttendanceToExcel(): Promise<string> {
-  const students = await getStudents();
-  const attendance = await getAttendance();
+export async function exportAttendanceToExcel(classId?: string): Promise<string> {
+  const [students, attendance] = await Promise.all([
+    studentsApi.getAll(classId),
+    attendanceApi.getAll(classId)
+  ]);
   
-  // Create attendance data with dates as columns
+  // Get all unique dates for this class
   const dates = [...new Set(attendance.map(a => a.date))].sort();
   
   const data = students.map(student => {

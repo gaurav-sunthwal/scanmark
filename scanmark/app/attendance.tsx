@@ -1,40 +1,63 @@
 import DateSelector from '@/components/date-selector';
-import { AttendanceRecord, clearAttendanceForDate, getAttendance, getStudents, Student } from '@/utils/storage';
+import { attendanceApi, studentsApi } from '@/utils/api';
+import { clearAttendance, clearAttendanceForDate } from '@/utils/storage';
+import { AttendanceRecord, Student } from '@/utils/types';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Modal, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Modal, RefreshControl, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AttendanceScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const classId = params.classId as string;
+
   const [attendance, setAttendance] = useState<(AttendanceRecord & { student?: Student })[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'today' | 'date'>('today');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const loadAttendance = useCallback(async () => {
-    const [records, students] = await Promise.all([
-      getAttendance(),
-      getStudents(),
-    ]);
+    if (!classId) return;
+    try {
+      setLoading(true);
+      const records = await attendanceApi.getAll(classId);
 
-    const enrichedRecords = records
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .map(record => ({
-        ...record,
-        student: students.find(s => s.id === record.studentId),
-      }));
+      const enrichedRecords = records
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .map(record => ({
+          ...record,
+          student: {
+            id: record.studentId,
+            name: record.name || 'Unknown',
+            rollNumber: record.roll_number || '',
+            barcode: '',
+            classId: record.classId || '',
+          },
+        }));
 
-    setAttendance(enrichedRecords);
-  }, []);
+      setAttendance(enrichedRecords);
+    } catch (error) {
+      console.error('Failed to load attendance from API:', error);
+      Alert.alert('Connection Error', 'Failed to fetch latest records from database.');
+    } finally {
+      setLoading(false);
+    }
+  }, [classId]);
 
   useEffect(() => {
+    if (!classId) {
+      Alert.alert('Error', 'No class selected');
+      router.back();
+      return;
+    }
     loadAttendance();
-  }, [loadAttendance]);
+  }, [loadAttendance, classId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -57,7 +80,7 @@ export default function AttendanceScreen() {
     
     Alert.alert(
       'Clear Attendance',
-      `Are you sure you want to clear all attendance records for ${dateToShow}? This action cannot be undone.`,
+      `Are you sure you want to clear attendance records for ${dateToShow} in this class?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -66,26 +89,22 @@ export default function AttendanceScreen() {
           onPress: async () => {
             try {
               if (filter === 'today') {
-                await clearAttendanceForDate(new Date().toISOString().split('T')[0]);
+                await attendanceApi.deleteAll(classId, new Date().toISOString().split('T')[0]);
               } else if (filter === 'date') {
-                await clearAttendanceForDate(selectedDate);
+                await attendanceApi.deleteAll(classId, selectedDate);
               } else {
-                // Clear all - show additional confirmation
+                // Clear all for this class
                 Alert.alert(
                   'Clear All Records',
-                  'This will delete ALL attendance records. Are you absolutely sure?',
+                  'Delete ALL attendance records for THIS class?',
                   [
                     { text: 'Cancel', style: 'cancel' },
                     {
                       text: 'Delete All',
                       style: 'destructive',
                       onPress: async () => {
-                        const records = await getAttendance();
-                        for (const record of records) {
-                          await clearAttendanceForDate(record.date);
-                        }
+                        await attendanceApi.deleteAll(classId);
                         await loadAttendance();
-                        Alert.alert('Success', 'All attendance records cleared');
                       }
                     }
                   ]
@@ -93,7 +112,6 @@ export default function AttendanceScreen() {
                 return;
               }
               await loadAttendance();
-              Alert.alert('Success', `Attendance cleared for ${dateToShow}`);
             } catch (error) {
               Alert.alert('Error', 'Failed to clear attendance');
             }
@@ -195,6 +213,13 @@ export default function AttendanceScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {loading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Loading Records...</Text>
+        </View>
+      ) : (
+        <>
       {/* Stats */}
       <View style={styles.statsContainer}>
         <View style={[styles.statCard, { backgroundColor: '#dcfce7' }]}>
@@ -233,6 +258,8 @@ export default function AttendanceScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      </>
+      )}
     </SafeAreaView>
   );
 }
@@ -241,6 +268,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '500',
   },
   header: {
     flexDirection: 'row',
@@ -259,9 +298,6 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: 4,
-  },
-  placeholder: {
-    width: 36,
   },
   filterContainer: {
     flexDirection: 'row',

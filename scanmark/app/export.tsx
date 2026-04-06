@@ -1,21 +1,31 @@
 import { exportAttendanceToExcel, exportTemplateExcel, shareExcelFile } from '@/utils/excel';
-import { clearAttendance, clearStudents } from '@/utils/storage';
+import { clearAttendance, clearStudents, nukeAllData } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ExportScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const classId = params.classId as string;
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (!classId) {
+      Alert.alert('Error', 'No class selected');
+      router.back();
+      return;
+    }
+  }, [classId]);
 
   const handleExportAttendance = async () => {
     try {
       setExporting(true);
-      const filePath = await exportAttendanceToExcel();
+      const filePath = await exportAttendanceToExcel(classId);
       await shareExcelFile(filePath);
     } catch (error) {
       Alert.alert('Error', 'Failed to export attendance');
@@ -54,15 +64,29 @@ export default function ExportScreen() {
   const handleResetAll = () => {
     Alert.alert(
       'Reset All Data',
-      'This will delete ALL students and attendance records. This cannot be undone.',
+      'This will delete ALL students and attendance records from the database and local storage. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Reset Everything', 
           style: 'destructive',
           onPress: async () => {
-            await Promise.all([clearStudents(), clearAttendance()]);
-            Alert.alert('Success', 'All data has been reset');
+            try {
+              setExporting(true);
+              // Comprehensive wipe of everything (API + Local Storage + Cache)
+              await nukeAllData();
+
+              Alert.alert(
+                'Success', 
+                'All data has been wiped from the database and local storage. Refreshing screens...',
+                [{ text: 'OK', onPress: () => router.replace('/') }]
+              );
+            } catch (error) {
+              console.error('Reset error:', error);
+              Alert.alert('Error', 'Failed to fully reset data. Please check your connection.');
+            } finally {
+              setExporting(false);
+            }
           }
         },
       ]

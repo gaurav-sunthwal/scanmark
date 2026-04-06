@@ -1,13 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-
-// Mock users - replace with database in production
-const users = [
-  { id: 1, email: 'admin@example.com', password: 'admin123', name: 'Admin User' },
-  { id: 2, email: 'teacher@example.com', password: 'teacher123', name: 'Teacher' },
-];
 
 export async function POST(request: Request) {
   try {
@@ -20,17 +17,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find user
-    const user = users.find(u => u.email === email && u.password === password);
+    const [user] = await db.select().from(users).where(eq(users.email, email));
 
-    if (!user) {
+    if (!user || user.password !== password) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    // Generate JWT token
     const token = jwt.sign(
       { 
         userId: user.id, 
@@ -49,9 +44,10 @@ export async function POST(request: Request) {
         name: user.name,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Login error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Login failed' },
+      { error: 'Login failed' },
       { status: 500 }
     );
   }
