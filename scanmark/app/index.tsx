@@ -333,22 +333,35 @@ export default function DashboardScreen() {
               <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity 
-              style={styles.primaryAction}
-              onPress={() => router.push({
-                pathname: '/scanner',
-                params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
-              })}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#3b82f6' }]}>
-                <Ionicons name="scan" size={32} color="#fff" />
-              </View>
-              <View style={styles.actionTextContainer}>
-                <Text style={styles.actionTitle}>Scan Barcode</Text>
-                <Text style={styles.actionSubtitle}>Take attendance by scanning</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="#94a3b8" />
-            </TouchableOpacity>
+            <View style={styles.actionRowGrid}>
+              <TouchableOpacity 
+                style={styles.gridAction}
+                onPress={() => router.push({
+                  pathname: '/scanner',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.gridActionIcon, { backgroundColor: '#3b82f6' }]}>
+                  <Ionicons name="barcode-outline" size={28} color="#fff" />
+                </View>
+                <Text style={styles.gridActionTitle}>Barcode</Text>
+              </TouchableOpacity>
+
+
+
+              <TouchableOpacity 
+                style={styles.gridAction}
+                onPress={() => router.push({
+                  pathname: '/students',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.gridActionIcon, { backgroundColor: '#10b981' }]}>
+                  <Ionicons name="people-outline" size={28} color="#fff" />
+                </View>
+                <Text style={styles.gridActionTitle}>Students</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </Animated.View>
 
@@ -645,6 +658,35 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  actionRowGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  gridAction: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  gridActionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  gridActionTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1e293b',
   },
   actionTextContainer: {
     flex: 1,

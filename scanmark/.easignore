@@ -1,0 +1,17 @@
+# Aggressive Ignore
+**/node_modules/
+node_modules/
+.expo/ 
+android/
+ios/
+facial-recognition-api/
+attendance-app/
+
+
+# Built files
+bin/
+build/
+dist/
+.cache/
+*.log
+.DS_Store

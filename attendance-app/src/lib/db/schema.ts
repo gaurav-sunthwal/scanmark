@@ -23,8 +23,7 @@ export const students = pgTable('students', {
   name: varchar('name', { length: 255 }).notNull(),
   rollNumber: varchar('roll_number', { length: 100 }).notNull(),
   barcode: varchar('barcode', { length: 255 }).notNull(),
-  faceDescriptor: text('face_descriptor'), // Stringified Float32Array (JSON)
-  photoUrls: text('photo_urls'), // JSON array of stored photo paths
+
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => ({
   classRollUnique: unique().on(t.classId, t.rollNumber),

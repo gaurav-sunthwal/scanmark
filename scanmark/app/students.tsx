@@ -152,49 +152,10 @@ export default function StudentsScreen() {
       <View style={styles.studentInfo}>
         <View style={styles.studentHeader}>
           <Text style={styles.studentName}>{item.name}</Text>
-          <View style={[
-            styles.statusBadge, 
-            { backgroundColor: item.faceDescriptor ? '#dcfce7' : '#fee2e2' }
-          ]}>
-            <Text style={[
-              styles.statusText, 
-              { color: item.faceDescriptor ? '#166534' : '#991b1b' }
-            ]}>
-              {item.faceDescriptor ? 'Face Enrolled' : 'No Face Data'}
-            </Text>
-          </View>
         </View>
         <Text style={styles.studentRoll}>Roll: {item.rollNumber}</Text>
         <Text style={styles.studentBarcode}>Barcode: {item.barcode}</Text>
       </View>
-      <TouchableOpacity 
-        style={styles.enrollButton}
-        onPress={() => {
-          if (!item.id) {
-            console.error('[StudentsScreen] Cannot enroll: student.id is missing', item);
-            Alert.alert('Error', 'Invalid student data. Please refresh the list.');
-            return;
-          }
-          router.push({
-            pathname: '/face-enroll',
-            params: { 
-              studentId: item.id, 
-              studentName: item.name,
-              rollNumber: item.rollNumber,
-              barcode: item.barcode
-            }
-          });
-        }}
-      >
-        <Ionicons 
-          name={item.faceDescriptor ? "refresh-circle" : "person-add"} 
-          size={20} 
-          color="#3b82f6" 
-        />
-        <Text style={styles.enrollButtonText}>
-          {item.faceDescriptor ? 'Update Face' : 'Enroll Face'}
-        </Text>
-      </TouchableOpacity>
     </Animated.View>
   );
 

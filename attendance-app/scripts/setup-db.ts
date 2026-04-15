@@ -71,17 +71,7 @@ async function setupDatabase() {
     // 5. Add indexes for performance
     console.log('✓ Indexes created for performance');
     
-    // 6. Face Recognition Columns
-    await pool.query(`
-      DO $$ 
-      BEGIN 
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='face_descriptor') THEN
-          ALTER TABLE students ADD COLUMN face_descriptor TEXT;
-          ALTER TABLE students ADD COLUMN photo_urls TEXT;
-        END IF;
-      END $$;
-    `);
-    console.log('✓ Students table updated with face recognition columns');
+
 
     console.log('\nDatabase setup complete!');
     process.exit(0);

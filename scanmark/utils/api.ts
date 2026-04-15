@@ -4,8 +4,7 @@ import { AttendanceRecord, Student } from './types';
 // Update this to your actual backend URL
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
-const API_BASE_URL = 'http://10.88.204.26:3000/api';
-const FACE_API_BASE_URL = 'http://10.88.204.26:8000';
+const API_BASE_URL = 'http://172.28.135.26:3000/api';
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'user_data';
 const SELECTED_CLASS_KEY = 'selected_class_id';
@@ -112,8 +111,6 @@ export const studentsApi = {
       rollNumber: s.roll_number,
       barcode: s.barcode,
       classId: s.class_id?.toString(),
-      faceDescriptor: s.face_descriptor,
-      photoUrls: s.photo_urls,
     }));
   },
 
@@ -134,8 +131,6 @@ export const studentsApi = {
         rollNumber: student.roll_number,
         barcode: student.barcode,
         classId: student.class_id?.toString(),
-        faceDescriptor: student.face_descriptor,
-        photoUrls: student.photo_urls,
       };
     } catch (error) {
       if (error instanceof Error && (error.message.includes('404') || error.message.includes('not found'))) {
@@ -166,8 +161,6 @@ export const studentsApi = {
       rollNumber: student.roll_number,
       barcode: student.barcode,
       classId: student.class_id?.toString(),
-      faceDescriptor: student.face_descriptor,
-      photoUrls: student.photo_urls,
     };
   },
 
@@ -196,8 +189,6 @@ export const studentsApi = {
         rollNumber: s.roll_number,
         barcode: s.barcode,
         classId: s.class_id?.toString(),
-        faceDescriptor: s.face_descriptor,
-        photoUrls: s.photo_urls,
       })),
     };
   },
@@ -216,16 +207,7 @@ export const studentsApi = {
     await handleResponse<any>(response);
   },
 
-  // Enroll face for students
-  enrollFace: async (studentId: string, images: string[]): Promise<{ success: boolean; message: string }> => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE_URL}/students/${studentId}/face`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ images }),
-    });
-    return handleResponse<{ success: boolean; message: string }>(response);
-  },
+
 };
 
 // Attendance API
@@ -372,68 +354,7 @@ export const attendanceApi = {
     return handleResponse<{ count: number }>(response);
   },
 
-  // Recognize face and mark attendance
-  recognizeFace: async (classId: string, image: string, date?: string): Promise<{ success: boolean; student: Student; message: string; alreadyMarked?: boolean }> => {
-    try {
-      // 1. Fetch all students for this class to get their descriptors
-      const studentsInClass = await studentsApi.getAll(classId);
-      const studentsWithDescriptors = studentsInClass
-        .filter(s => (s as any).face_descriptor)
-        .map(s => ({
-          id: parseInt(s.id),
-          descriptor: (s as any).face_descriptor
-        }));
 
-      if (studentsWithDescriptors.length === 0) {
-        throw new Error("No students in this class have enrolled faces yet.");
-      }
-
-      // 2. Call the Python Recognition API
-      const pythonResponse = await fetch(`${FACE_API_BASE_URL}/recognize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_base64: image,
-          students: studentsWithDescriptors
-        }),
-      });
-
-      const recognitionResult = await handleResponse<any>(pythonResponse);
-
-      if (!recognitionResult.success) {
-        return {
-          success: false,
-          student: {} as Student,
-          message: recognitionResult.error || "Recognition failed"
-        };
-      }
-
-      // 3. Mark attendance on main backend using the recognized studentId
-      const studentId = recognitionResult.studentId.toString();
-      const markResponse = await attendanceApi.mark(
-        studentId,
-        date || new Date().toISOString().split('T')[0],
-        'present',
-        classId
-      );
-
-      // 4. Find student details from our local list
-      const matchedStudent = studentsInClass.find(s => s.id === studentId);
-
-      return {
-        success: true,
-        student: matchedStudent || { id: studentId } as Student,
-        message: "Attendance marked successfully"
-      };
-    } catch (error: any) {
-      console.error('Recognition error:', error);
-      return {
-        success: false,
-        student: {} as Student,
-        message: error.message || "Failed to process face recognition"
-      };
-    }
-  },
 };
 
 // Stats API

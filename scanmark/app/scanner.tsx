@@ -4,11 +4,10 @@ import { Student } from '@/utils/types';
 import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState, useRef } from 'react';
-import { useFocusEffect } from 'expo-router';
-import { Alert, StyleSheet, Text, TouchableOpacity, Vibration, View, ActivityIndicator, Modal, TextInput } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, Vibration, View } from 'react-native';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,7 +21,7 @@ export default function ScannerScreen() {
   const params = useLocalSearchParams();
   const classId = params.classId as string;
   const className = params.className as string;
-  
+
   // Local-First State
   const studentsRef = useRef<Student[]>([]);
   const pendingAttendanceRef = useRef<Set<string>>(new Set());
@@ -38,9 +37,6 @@ export default function ScannerScreen() {
   const [pendingBarcode, setPendingBarcode] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Face Recognition State
-  const [isFaceMode, setIsFaceMode] = useState(false);
-  const [isRecognizing, setIsRecognizing] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!classId) return;
@@ -51,17 +47,17 @@ export default function ScannerScreen() {
         studentsApi.getAll(classId),
         attendanceApi.getAll(classId) // Fetch existing records for today
       ]);
-      
+
       studentsRef.current = studentsData;
-      
+
       // Track who is already marked present today
       const today = new Date().toISOString().split('T')[0];
       const todayPresent = attendanceData
         .filter(r => r.date === today && r.status === 'present')
         .map(r => r.studentId);
-      
+
       alreadyMarkedRef.current = new Set(todayPresent);
-      
+
       setStats({
         total: statsData.totalStudents,
         present: statsData.present,
@@ -76,15 +72,15 @@ export default function ScannerScreen() {
 
   const syncToBackend = useCallback(async () => {
     if (pendingAttendanceRef.current.size === 0 || isSyncingRef.current || !classId) return;
-    
+
     isSyncingRef.current = true;
     const idsToSync = Array.from(pendingAttendanceRef.current);
     const today = new Date().toISOString().split('T')[0];
-    
+
     try {
       console.log('Syncing attendance to backend:', idsToSync.length);
       await attendanceApi.bulkMark(idsToSync, classId, today);
-      
+
       // Clear synced IDs
       idsToSync.forEach(id => pendingAttendanceRef.current.delete(id));
       globalState.needsDashboardRefresh = true;
@@ -110,7 +106,7 @@ export default function ScannerScreen() {
       return;
     }
     loadData();
-    
+
     // Cleanup: sync on unmount
     return () => {
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
@@ -135,23 +131,23 @@ export default function ScannerScreen() {
 
   const handleBarcodeScanned = useCallback(async (result: BarcodeScanningResult) => {
     if (scanned || !classId) return;
-    
+
     // Trim and normalize scanned barcode
     const scannedBarcode = result.data.trim();
     console.log(`Scanned barcode: "${scannedBarcode}"`);
     console.log(`Available students: ${studentsRef.current.length}`);
 
     // INSTANT LOCAL LOOKUP with normalized comparison
-    const student = studentsRef.current.find(s => 
+    const student = studentsRef.current.find(s =>
       s.barcode?.toString().trim().toLowerCase() === scannedBarcode.toLowerCase()
     );
-    
+
     if (student) {
       console.log(`Student found: ${student.name}`);
       // INSTANT UI UPDATE
       Vibration.vibrate(200);
       setLastScanned({ student, status: 'present' });
-      
+
       // ONLY increment present count if not already marked today (in DB or locally)
       if (!alreadyMarkedRef.current.has(student.id) && !pendingAttendanceRef.current.has(student.id)) {
         console.log(`Marking as NEW local scan: ${student.name}`);
@@ -163,30 +159,30 @@ export default function ScannerScreen() {
       } else {
         console.log(`Already marked present: ${student.name}`);
       }
-      
+
       setScanned(true);
-      
+
       // Auto-reset for next scan
       setTimeout(() => {
         setScanned(false);
         setLastScanned(null);
       }, 2000);
-      
+
       // Schedule sync with backend
       scheduleSync();
-      
+
     } else {
       console.warn(`Student not found for barcode: "${scannedBarcode}"`);
       Vibration.vibrate([0, 100, 50, 100]);
       setScanned(true); // Pause scanning
-      
+
       Alert.alert(
         'Student Not Found',
         `No student found with barcode: ${scannedBarcode}.\n\nWould you like to add this student to ${className || 'this class'}?`,
         [
           { text: 'Cancel', style: 'cancel', onPress: () => setScanned(false) },
-          { 
-            text: 'Add Student', 
+          {
+            text: 'Add Student',
             onPress: () => {
               setPendingBarcode(scannedBarcode);
               setIsAddModalVisible(true);
@@ -214,7 +210,7 @@ export default function ScannerScreen() {
 
       // 1. Add to local cache
       studentsRef.current = [...studentsRef.current, student];
-      
+
       // 2. Mark as present locally
       console.log(`Newly created student marked present: ${student.name}`);
       pendingAttendanceRef.current.add(student.id);
@@ -231,12 +227,12 @@ export default function ScannerScreen() {
       setNewStudentRoll('');
       setPendingBarcode('');
       setScanned(false);
-      
+
       // 4. Sync
       syncToBackend();
       globalState.needsDashboardRefresh = true;
       Vibration.vibrate(200);
-      
+
     } catch (error) {
       console.error('Failed to create student:', error);
       Alert.alert('Error', 'Failed to add student. Please try again.');
@@ -245,60 +241,11 @@ export default function ScannerScreen() {
     }
   };
 
-  const handleFaceRecognized = async () => {
-    if (!cameraRef.current || isRecognizing || !classId) return;
-
-    try {
-      setIsRecognizing(true);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: true,
-      });
-
-      if (photo?.uri) {
-        // Resize to 640px height to keep it small but clear for face-api
-        const manipulated = await manipulateAsync(
-          photo.uri,
-          [{ resize: { height: 640 } }],
-          { base64: true, compress: 0.7, format: SaveFormat.JPEG }
-        );
-
-        const result = await attendanceApi.recognizeFace(
-          classId, 
-          `data:image/jpeg;base64,${manipulated.base64}`
-        );
-
-        if (result.success) {
-          Vibration.vibrate(200);
-          setLastScanned({ student: result.student, status: 'present' });
-          
-          if (!alreadyMarkedRef.current.has(result.student.id)) {
-            setStats(prev => ({
-              ...prev,
-              present: prev.present + 1
-            }));
-            alreadyMarkedRef.current.add(result.student.id);
-            globalState.needsDashboardRefresh = true;
-          }
-
-          // Reset scanned info after confirmation
-          setTimeout(() => {
-            setLastScanned(null);
-          }, 3000);
-        }
-      }
-    } catch (error) {
-      console.error('Face recognition failed:', error);
-      Alert.alert('Recognition Failed', 'Face not clearly detected or not recognized.');
-    } finally {
-      setIsRecognizing(false);
-    }
-  };
 
   const handleEndAttendance = () => {
     if (!classId) return;
     const unmarked = stats.total - stats.present - stats.absent;
-    
+
     Alert.alert(
       'End Today\'s Attendance',
       `${stats.present} students marked present.\n${unmarked} students will be marked absent for ${className || 'this class'}.\n\nAre you sure?`,
@@ -340,19 +287,14 @@ export default function ScannerScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isFaceMode ? 'Face Recognition' : 'Barcode Scanner'}</Text>
-        <TouchableOpacity 
-          onPress={() => setIsFaceMode(!isFaceMode)} 
-          style={[styles.modeToggle, isFaceMode && styles.activeModeToggle]}
-        >
-          <Ionicons name={isFaceMode ? "barcode" : "person"} size={24} color="#fff" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Barcode Scanner</Text>
+        <View style={styles.placeholder} />
       </View>
 
       {/* Camera */}
@@ -360,11 +302,11 @@ export default function ScannerScreen() {
         <CameraView
           ref={cameraRef}
           style={styles.camera}
-          facing={isFaceMode ? "front" : "back"}
-          barcodeScannerSettings={isFaceMode ? undefined : {
+          facing="back"
+          barcodeScannerSettings={{
             barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'pdf417'],
           }}
-          onBarcodeScanned={scanned || isFaceMode ? undefined : handleBarcodeScanned}
+          onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
         >
           {/* Scan Overlay */}
           <View style={styles.overlay}>
@@ -375,32 +317,15 @@ export default function ScannerScreen() {
               </View>
             ) : (
               <>
-                <View style={[styles.scanArea, isFaceMode && styles.faceScanArea]}>
-                  <View style={[styles.corner, styles.topLeft, isFaceMode && styles.faceCorner]} />
-                  <View style={[styles.corner, styles.topRight, isFaceMode && styles.faceCorner]} />
-                  <View style={[styles.corner, styles.bottomLeft, isFaceMode && styles.faceCorner]} />
-                  <View style={[styles.corner, styles.bottomRight, isFaceMode && styles.faceCorner]} />
+                <View style={styles.scanArea}>
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
                 </View>
                 <Text style={styles.scanText}>
-                  {isFaceMode ? 'Align face in the frame' : 'Align barcode within the frame'}
+                  Align barcode within the frame
                 </Text>
-
-                {isFaceMode && (
-                  <TouchableOpacity 
-                    style={[styles.recognizeButton, isRecognizing && styles.disabledButton]}
-                    onPress={handleFaceRecognized}
-                    disabled={isRecognizing}
-                  >
-                    {isRecognizing ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <>
-                        <Ionicons name="scan-circle" size={32} color="#fff" />
-                        <Text style={styles.recognizeButtonText}>Recognize Face</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
               </>
             )}
           </View>
@@ -440,17 +365,17 @@ export default function ScannerScreen() {
             <Text style={styles.statLabel}>Absent</Text>
           </View>
         </View>
-        
+
         <View style={styles.actionRow}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.viewStudentsButton}
             onPress={() => router.push('/students')}
           >
             <Ionicons name="list" size={20} color="#3b82f6" />
             <Text style={styles.viewStudentsText}>View Students</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.endButton}
             onPress={handleEndAttendance}
           >
@@ -483,7 +408,7 @@ export default function ScannerScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add New Student</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   setIsAddModalVisible(false);
                   setScanned(false);
@@ -518,7 +443,7 @@ export default function ScannerScreen() {
               />
             </View>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
               onPress={handleSaveNewStudent}
               disabled={isSaving}
@@ -864,35 +789,5 @@ const styles = StyleSheet.create({
   },
   activeModeToggle: {
     backgroundColor: '#3b82f6',
-  },
-  faceScanArea: {
-    borderRadius: 140,
-    borderStyle: 'dashed',
-  },
-  faceCorner: {
-    borderColor: '#4ade80',
-  },
-  recognizeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 30,
-    marginTop: 40,
-    gap: 10,
-    shadowColor: '#3b82f6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  recognizeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  disabledButton: {
-    opacity: 0.5,
   },
 });

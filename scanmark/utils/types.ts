@@ -4,8 +4,6 @@ export interface Student {
   rollNumber: string;
   barcode: string;
   classId?: string;
-  faceDescriptor?: string;
-  photoUrls?: string;
 }
 
 export interface AttendanceRecord {

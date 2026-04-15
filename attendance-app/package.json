@@ -11,13 +11,10 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
-    "@tensorflow/tfjs-node": "^4.22.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.20.0",
-    "canvas": "^3.2.3",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
-    "face-api.js": "^0.22.2",
     "jsonwebtoken": "^9.0.3",
     "next": "16.2.1",
     "pg": "^8.20.0",

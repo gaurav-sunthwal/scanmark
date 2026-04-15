@@ -1,0 +1,16 @@
+# Aggressive Ignore
+**/node_modules/
+node_modules/
+.expo/
+android/
+ios/
+
+# Avoid parent projects
+attendance-app/
+facial-recognition-api/
+faceimg/
+
+# Logs and Caches
+.cache/
+*.log
+.DS_Store
