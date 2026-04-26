@@ -1,27 +1,32 @@
-# Use a pre-built image that already has dlib and face_recognition
-# This avoids the high-memory compilation step on Render
-FROM animenosekai/face_recognition:latest
+# Use a standard Python image
+FROM python:3.9-slim
+
+# Install system dependencies (needed for face_recognition)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    libopenblas-dev \
+    liblapack-dev \
+    libx11-dev \
+    libgtk-3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install only missing dependencies
-# (face_recognition, numpy, dlib are already in the base image)
+# Copy requirements FIRST to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    fastapi \
-    uvicorn \
-    python-multipart \
-    boto3 \
-    python-dotenv \
-    pydantic \
-    pillow
 
-# Copy the rest of the application
+# Install dependencies
+# We use --no-cache-dir to keep the image small
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
 COPY . .
 
-# Expose the port FastAPI runs on
-EXPOSE 8000
+# Expose the port
+EXPOSE 8080
 
-# Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the app
+# Note: Google Cloud Run expects the app to listen on the $PORT environment variable
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
