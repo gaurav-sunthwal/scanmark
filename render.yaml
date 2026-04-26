@@ -1,0 +1,38 @@
+services:
+  # 1. FastAPI Backend (Face AI)
+  - type: web
+    name: scanmark-face-api
+    env: docker
+    dockerContext: attendance-system/backend
+    dockerfilePath: attendance-system/backend/Dockerfile
+    plan: starter # Requires at least 512MB RAM for face_recognition
+    envVars:
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: DYNAMODB_TABLE
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+
+  # 2. Next.js App API
+  - type: web
+    name: scanmark-dashboard
+    env: node
+    plan: starter
+    rootDir: attendance-app
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          name: scanmark-dashboard
+          type: web
+          property: url
