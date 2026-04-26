@@ -4,12 +4,17 @@ import { AttendanceRecord, Student } from './types';
 // Update this to your actual backend URL
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
+// Set this to true to use production URLs, false for local development
+const IS_PROD = true;
+
 const SERVER_IP = '10.67.152.26';
-const API_BASE_URL = `http://${SERVER_IP}:3000/api`;
-const TOKEN_KEY = 'auth_token';
-const USER_KEY = 'user_data';
-const SELECTED_CLASS_KEY = 'selected_class_id';
-const FACE_API_BASE_URL = `http://${SERVER_IP}:8000`; // FastAPI backend
+const API_BASE_URL = IS_PROD 
+  ? 'https://scanmark-ksrz.vercel.app/api' 
+  : `http://${SERVER_IP}:3000/api`;
+
+const FACE_API_BASE_URL = IS_PROD 
+  ? 'https://scanmark-nmw9.onrender.com' 
+  : `http://${SERVER_IP}:8000`;
 
 
 // Storage wrapper that works in Expo Go
