@@ -65,16 +65,19 @@ export default function HomeScreen() {
         </ThemedText>
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
+        <ThemedText type="subtitle">Face Recognition</ThemedText>
+        <Link href="/face-enroll" style={styles.link}>
+          <ThemedText type="link">Enroll Student Face</ThemedText>
+        </Link>
+        <Link href="/face-recognition" style={styles.link}>
+          <ThemedText type="link">Individual Recognition</ThemedText>
+        </Link>
+        <Link href="/face-group" style={styles.link}>
+          <ThemedText type="link">Group Photo Attendance</ThemedText>
+        </Link>
       </ThemedView>
     </ParallaxScrollView>
+
   );
 }
 
@@ -95,4 +98,9 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
   },
+  link: {
+    marginTop: 8,
+    paddingVertical: 4,
+  },
 });
+

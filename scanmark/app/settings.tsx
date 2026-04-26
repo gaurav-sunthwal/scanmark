@@ -1,4 +1,5 @@
 import { authApi } from '@/utils/api';
+import { exportTemplateExcel, shareExcelFile } from '@/utils/excel';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -39,6 +40,15 @@ export default function SettingsScreen() {
         },
       ]
     );
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const filePath = await exportTemplateExcel();
+      await shareExcelFile(filePath);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to download template');
+    }
   };
 
   const navigateTo = (path: any) => {
@@ -120,6 +130,19 @@ export default function SettingsScreen() {
                 <Text style={styles.settingDescription}>Download attendance reports</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingCard} onPress={handleDownloadTemplate}>
+            <View style={styles.settingRow}>
+              <View style={[styles.iconContainer, { backgroundColor: '#ecfdf5' }]}>
+                <Ionicons name="document" size={22} color="#10b981" />
+              </View>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Excel Template</Text>
+                <Text style={styles.settingDescription}>Download student import format</Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color="#cbd5e1" />
             </View>
           </TouchableOpacity>
         </View>

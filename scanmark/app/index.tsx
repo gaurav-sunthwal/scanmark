@@ -328,26 +328,64 @@ export default function DashboardScreen() {
               </View>
               <View style={styles.actionTextContainer}>
                 <Text style={[styles.actionTitle, { color: '#fff' }]}>Import Student Data</Text>
-                <Text style={[styles.actionSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>Upload an Excel file to start taking attendance</Text>
+                <Text style={[styles.actionSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>Upload an Excel or CSV file to start taking attendance</Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
             </TouchableOpacity>
           ) : (
+            <View style={styles.actionRowGrid}>
+              <TouchableOpacity 
+                style={styles.gridAction}
+                onPress={() => router.push({
+                  pathname: '/scanner',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.gridActionIcon, { backgroundColor: '#3b82f6' }]}>
+                  <Ionicons name="barcode-outline" size={28} color="#fff" />
+                </View>
+                <Text style={styles.gridActionTitle}>Scanner</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.gridAction}
+                onPress={() => router.push({
+                  pathname: '/face-recognition',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.gridActionIcon, { backgroundColor: '#8b5cf6' }]}>
+                  <Ionicons name="person-outline" size={28} color="#fff" />
+                </View>
+                <Text style={styles.gridActionTitle}>Face Rec</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.gridAction}
+                onPress={() => router.push({
+                  pathname: '/face-group',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.gridActionIcon, { backgroundColor: '#f59e0b' }]}>
+                  <Ionicons name="people-outline" size={28} color="#fff" />
+                </View>
+                <Text style={styles.gridActionTitle}>Bulk Scan</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {hasStudents && (
             <TouchableOpacity 
-              style={styles.primaryAction}
+              style={styles.studentListAction}
               onPress={() => router.push({
-                pathname: '/scanner',
+                pathname: '/students',
                 params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
               })}
             >
-              <View style={[styles.actionIcon, { backgroundColor: '#3b82f6' }]}>
-                <Ionicons name="scan" size={32} color="#fff" />
-              </View>
-              <View style={styles.actionTextContainer}>
-                <Text style={styles.actionTitle}>Scan Barcode</Text>
-                <Text style={styles.actionSubtitle}>Take attendance by scanning</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="#94a3b8" />
+              <Ionicons name="list" size={20} color="#64748b" />
+              <Text style={styles.studentListActionText}>View & Manage Students</Text>
+              <Ionicons name="chevron-forward" size={16} color="#cbd5e1" style={{ marginLeft: 'auto' }} />
             </TouchableOpacity>
           )}
         </Animated.View>
@@ -393,7 +431,7 @@ export default function DashboardScreen() {
           <Animated.View entering={FadeIn} style={styles.warningContainer}>
             <Ionicons name="information-circle" size={24} color="#f59e0b" />
             <Text style={styles.warningText}>
-              No students imported yet. Import an Excel file to get started.
+              No students imported yet. Import an Excel or CSV file to get started.
             </Text>
           </Animated.View>
         )}
@@ -645,6 +683,51 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  actionRowGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  gridAction: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  gridActionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  gridActionTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  studentListAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 12,
+  },
+  studentListActionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748b',
   },
   actionTextContainer: {
     flex: 1,

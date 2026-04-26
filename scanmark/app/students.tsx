@@ -6,14 +6,18 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Modal } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomCamera from '@/components/Camera';
+import { faceApi } from '@/utils/api';
+
 
 export default function StudentsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const classId = params.classId as string;
+  const className = params.className as string;
   
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
@@ -21,6 +25,13 @@ export default function StudentsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showCamera, setShowCamera] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [enrollLoading, setEnrollLoading] = useState(false);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [newStudent, setNewStudent] = useState({ name: '', rollNumber: '', barcode: '' });
+  const [adding, setAdding] = useState(false);
+
 
   const loadStudents = useCallback(async () => {
     if (!classId) return;
@@ -65,7 +76,7 @@ export default function StudentsScreen() {
     setRefreshing(false);
   }, [loadStudents]);
 
-  const handleImportExcel = async () => {
+  const handleImportData = async () => {
     if (!classId) {
       Alert.alert('Error', 'Please select a class first');
       return;
@@ -81,6 +92,8 @@ export default function StudentsScreen() {
           'application/excel',
           'application/x-excel',
           'application/x-msexcel',
+          'text/csv',
+          'text/comma-separated-values',
           '*/*'
         ],
         copyToCacheDirectory: true,
@@ -93,8 +106,8 @@ export default function StudentsScreen() {
 
       const file = result.assets[0];
       const fileName = file.name?.toLowerCase() || '';
-      if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
-        Alert.alert('Warning', 'Please select an Excel file (.xlsx or .xls)');
+      if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls') && !fileName.endsWith('.csv')) {
+        Alert.alert('Warning', 'Please select an Excel (.xlsx, .xls) or CSV (.csv) file');
         setImporting(false);
         return;
       }
@@ -121,7 +134,7 @@ export default function StudentsScreen() {
 
       const parsedStudents = await parseExcelFile(base64Content);
       if (parsedStudents.length === 0) {
-        Alert.alert('Error', 'No valid student data found in the Excel file.');
+        Alert.alert('Error', 'No valid student data found in the file.');
         setImporting(false);
         return;
       }
@@ -132,71 +145,116 @@ export default function StudentsScreen() {
       Alert.alert('Success', `Imported ${parsedStudents.length} students successfully!`);
     } catch (error) {
       console.error('Import error:', error);
-      Alert.alert('Error', 'Failed to import Excel file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      Alert.alert('Error', 'Failed to import file: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setImporting(false);
     }
   };
 
-  const handleDownloadTemplate = async () => {
+  const handleAddStudent = async () => {
+    if (!newStudent.name || !newStudent.rollNumber || !newStudent.barcode) {
+      Alert.alert('Error', 'Please fill all fields');
+      return;
+    }
+
     try {
-      const filePath = await exportTemplateExcel();
-      await shareExcelFile(filePath);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to download template');
+      setAdding(true);
+      await studentsApi.create(
+        newStudent.name,
+        newStudent.rollNumber,
+        newStudent.barcode,
+        classId
+      );
+      
+      setAddModalVisible(false);
+      setNewStudent({ name: '', rollNumber: '', barcode: '' });
+      await loadStudents();
+      Alert.alert('Success', 'Student added successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to add student');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleEnrollFace = (student: Student) => {
+    setSelectedStudent(student);
+    setShowCamera(true);
+  };
+
+  const onCaptureFace = async (base64: string) => {
+    if (!selectedStudent) return;
+    
+    setShowCamera(false);
+    setEnrollLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('studentId', selectedStudent.id);
+      formData.append('name', selectedStudent.name);
+      formData.append('prn', selectedStudent.rollNumber); // Using rollNumber as PRN
+      formData.append('class_name', className || classId); 
+      
+      // Send base64 directly to avoid iOS "NSCocoaErrorDomain Code=258"
+      formData.append('photo_base64', base64);
+
+      const response = await faceApi.enroll(formData);
+
+      if (response.success) {
+        Alert.alert('Success', `Face registered for ${selectedStudent.name}`);
+        loadStudents(); // Refresh list to show updated status
+      }
+    } catch (error: any) {
+      console.error(error);
+      Alert.alert('Error', error.message || 'Face enrollment failed');
+    } finally {
+      setEnrollLoading(false);
+      setSelectedStudent(null);
     }
   };
 
   const renderStudent = ({ item, index }: { item: Student; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 50)} style={styles.studentCard}>
-      <View style={styles.studentInfo}>
+      <TouchableOpacity 
+        style={styles.studentInfo} 
+        onPress={() => router.push({
+          pathname: '/student-details',
+          params: { 
+            id: item.id,
+            name: item.name,
+            rollNumber: item.rollNumber,
+            barcode: item.barcode,
+            classId: item.classId,
+            className: className,
+            imageUrl: item.imageUrl,
+            isFaceEnrolled: item.isFaceEnrolled ? 'true' : 'false'
+          }
+        })}
+      >
         <View style={styles.studentHeader}>
           <Text style={styles.studentName}>{item.name}</Text>
-          <View style={[
-            styles.statusBadge, 
-            { backgroundColor: item.faceDescriptor ? '#dcfce7' : '#fee2e2' }
-          ]}>
-            <Text style={[
-              styles.statusText, 
-              { color: item.faceDescriptor ? '#166534' : '#991b1b' }
-            ]}>
-              {item.faceDescriptor ? 'Face Enrolled' : 'No Face Data'}
-            </Text>
-          </View>
         </View>
         <Text style={styles.studentRoll}>Roll: {item.rollNumber}</Text>
         <Text style={styles.studentBarcode}>Barcode: {item.barcode}</Text>
-      </View>
+      </TouchableOpacity>
+      
       <TouchableOpacity 
-        style={styles.enrollButton}
-        onPress={() => {
-          if (!item.id) {
-            console.error('[StudentsScreen] Cannot enroll: student.id is missing', item);
-            Alert.alert('Error', 'Invalid student data. Please refresh the list.');
-            return;
-          }
-          router.push({
-            pathname: '/face-enroll',
-            params: { 
-              studentId: item.id, 
-              studentName: item.name,
-              rollNumber: item.rollNumber,
-              barcode: item.barcode
-            }
-          });
-        }}
+        style={[styles.enrollButton, item.isFaceEnrolled && styles.enrollButtonDone]} 
+        onPress={() => !item.isFaceEnrolled && handleEnrollFace(item)}
+        disabled={enrollLoading || item.isFaceEnrolled}
       >
         <Ionicons 
-          name={item.faceDescriptor ? "refresh-circle" : "person-add"} 
+          name={item.isFaceEnrolled ? "checkmark-circle" : "person-add"} 
           size={20} 
-          color="#3b82f6" 
+          color={item.isFaceEnrolled ? "#10b981" : "#3b82f6"} 
         />
-        <Text style={styles.enrollButtonText}>
-          {item.faceDescriptor ? 'Update Face' : 'Enroll Face'}
+        <Text style={[styles.enrollButtonText, item.isFaceEnrolled && styles.enrollButtonTextDone]}>
+          {item.isFaceEnrolled ? "Enrolled" : "Enroll Face"}
         </Text>
       </TouchableOpacity>
     </Animated.View>
   );
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -206,7 +264,9 @@ export default function StudentsScreen() {
           <Ionicons name="arrow-back" size={28} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Students</Text>
-        <View style={{ width: 44 }} />
+        <TouchableOpacity onPress={() => router.push('/face-group')} style={styles.backButton}>
+          <Ionicons name="people" size={24} color="#3b82f6" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.statsContainer}>
@@ -232,18 +292,18 @@ export default function StudentsScreen() {
       <View style={styles.actionsContainer}>
         <TouchableOpacity 
           style={[styles.importButton, importing && styles.importingButton]}
-          onPress={handleImportExcel}
+          onPress={handleImportData}
           disabled={importing}
         >
           <Ionicons name="cloud-upload" size={24} color="#fff" />
           <Text style={styles.importButtonText}>
-            {importing ? 'Importing...' : 'Import Excel'}
+            {importing ? 'Importing...' : 'Import Data'}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.templateButton} onPress={handleDownloadTemplate}>
-          <Ionicons name="download" size={20} color="#3b82f6" />
-          <Text style={styles.templateButtonText}>Template</Text>
+        <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)}>
+          <Ionicons name="person-add" size={20} color="#fff" />
+          <Text style={styles.addButtonText}>Add Student</Text>
         </TouchableOpacity>
       </View>
       
@@ -262,7 +322,87 @@ export default function StudentsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {showCamera && (
+        <View style={StyleSheet.absoluteFill}>
+          <CustomCamera 
+            onCapture={onCaptureFace} 
+            onClose={() => setShowCamera(false)} 
+          />
+        </View>
+      )}
+      
+      {enrollLoading && (
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.overlayText}>Processing Face...</Text>
+        </View>
+      )}
+
+      <Modal
+        visible={addModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAddModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add New Student</Text>
+              <TouchableOpacity onPress={() => setAddModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Full Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter student name"
+                value={newStudent.name}
+                onChangeText={(text) => setNewStudent({ ...newStudent, name: text })}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Roll Number / PRN</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter roll number"
+                value={newStudent.rollNumber}
+                onChangeText={(text) => setNewStudent({ ...newStudent, rollNumber: text })}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Barcode Value</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter barcode"
+                value={newStudent.barcode}
+                onChangeText={(text) => setNewStudent({ ...newStudent, barcode: text })}
+              />
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.submitButton, adding && styles.disabledButton]} 
+              onPress={handleAddStudent}
+              disabled={adding}
+            >
+              {adding ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={20} color="#fff" />
+                  <Text style={styles.submitButtonText}>Create Student</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+
   );
 }
 
@@ -294,8 +434,8 @@ const styles = StyleSheet.create({
   importButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#22c55e', paddingVertical: 14, borderRadius: 12, gap: 8 },
   importingButton: { backgroundColor: '#86efac' },
   importButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  templateButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#dbeafe', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, gap: 8 },
-  templateButtonText: { color: '#3b82f6', fontSize: 14, fontWeight: '600' },
+  addButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, gap: 8 },
+  addButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   listContainer: { paddingHorizontal: 20, paddingBottom: 20 },
   studentCard: { 
     backgroundColor: '#fff', 
@@ -340,4 +480,84 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#3b82f6',
   },
+  enrollButtonDone: {
+    backgroundColor: '#ecfdf5',
+  },
+  enrollButtonTextDone: {
+    color: '#10b981',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  overlayText: {
+    color: '#fff',
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    minHeight: 450,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1e293b',
+  },
+  submitButton: {
+    backgroundColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 8,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
 });
+

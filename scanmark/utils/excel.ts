@@ -46,7 +46,7 @@ export async function parseExcelFile(base64Data: string): Promise<Student[]> {
     return students;
   } catch (error) {
     console.error('Parse Excel error:', error);
-    throw new Error('Failed to parse Excel file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    throw new Error('Failed to parse file: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 
