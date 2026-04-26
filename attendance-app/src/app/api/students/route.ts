@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
       name: students.name,
       roll_number: students.rollNumber,
       barcode: students.barcode,
+
       created_at: students.createdAt,
     })
       .from(students)
