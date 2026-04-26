@@ -30,3 +30,5 @@ EXPOSE 8080
 # Run the app
 # Note: Google Cloud Run expects the app to listen on the $PORT environment variable
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
+
+
