@@ -35,6 +35,28 @@
 - Status endpoint: `GET /api/health`
 - Connection verification
 
+### Face Recognition API (attendance-system)
+
+✅ **Face Enrollment**
+- Multi-part form data upload (Image + Info)
+- Facial encoding extraction
+- Secure storage of photos in AWS S3
+- Facial encodings stored in DynamoDB
+- Enrollment status tracking
+
+✅ **Face Recognition**
+- High-precision facial matching
+- Individual recognition: `POST /recognize`
+- Group recognition: `POST /recognize-group` (Multiple students in one frame)
+- Automatic attendance marking upon recognition
+- Class-specific recognition filtering
+
+✅ **Student Biometrics**
+- Get enrollment status: `GET /enroll/status/:prn`
+- Bulk status check: `POST /enroll/check`
+- Student photo serving: `GET /photo/:prn`
+- Photo removal: `DELETE /enroll/:prn`
+
 ### Mobile App (scanmark)
 
 ✅ **Authentication Flow**
@@ -62,6 +84,13 @@
 - Real-time stats update
 - End-of-day batch marking (mark all absent)
 - Manual entry option
+
+✅ **Face Recognition Integration**
+- Camera-based facial capture
+- Enrollment flow with photo upload
+- Visual enrollment status indicator on student list
+- Group photo attendance marking
+- Real-time recognition feedback
 
 ✅ **Attendance Records**
 - Three filter modes:
@@ -298,12 +327,14 @@ Local Storage ← Fallback ← Error ← Response
 
 All requested features have been implemented and tested:
 - ✅ Backend API integration
+- ✅ Face Recognition System integration
 - ✅ JWT authentication with login flow
 - ✅ Date-based attendance filtering
 - ✅ Shared database
 - ✅ Real-time synchronization
 - ✅ Offline mode support
 - ✅ Barcode scanning
+- ✅ Group Face Recognition attendance
 - ✅ Excel import/export
 - ✅ Settings and configuration
 - ✅ User management

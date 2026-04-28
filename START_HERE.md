@@ -11,7 +11,16 @@ npm run dev
 
 ✅ Backend running at: http://localhost:3000
 
-### Step 2: Start Mobile App (Terminal 2)
+### Step 2: Start Face Recognition API (Terminal 2)
+
+```bash
+cd attendance-system/backend
+# python3 main.py
+```
+
+✅ Face API running at: http://localhost:8000
+
+### Step 3: Start Mobile App (Terminal 3)
 
 ```bash
 cd scanmark
@@ -49,6 +58,8 @@ Then press:
 ## 📱 Features You Can Use Now
 
 ✅ **Barcode Scanning** - Mark attendance in seconds
+✅ **Face Recognition** - AI-powered facial attendance
+✅ **Group Attendance** - Mark multiple students at once
 ✅ **Date Filtering** - View any date's attendance
 ✅ **Real-time Sync** - Data shared across devices
 ✅ **Offline Mode** - Works without internet
@@ -93,7 +104,9 @@ npm run ios          # Run on iOS
 
 ✅ JWT Authentication with 7-day token expiry
 ✅ Backend API with all CRUD operations
-✅ Mobile app with barcode scanner
+✅ Face Recognition System (FastAPI)
+✅ Mobile app with barcode & face scanner
+✅ Group face recognition support
 ✅ Date-based attendance filtering
 ✅ Real-time statistics dashboard
 ✅ Excel import/export

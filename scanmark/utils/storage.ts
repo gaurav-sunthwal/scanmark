@@ -1,5 +1,5 @@
 import { AttendanceRecord, Student } from './types';
-import { attendanceApi, healthCheck, statsApi, studentsApi, userApi } from './api';
+import { attendanceApi, classesApi, healthCheck, statsApi, studentsApi, userApi } from './api';
 
 // No local storage keys besides auth (handled in api.ts)
 
@@ -135,7 +135,9 @@ export async function getAttendanceStats(): Promise<{ total: number; present: nu
 
 // End Today's Attendance
 export async function endTodayAttendance(): Promise<{ markedAbsent: number; alreadyMarked: number }> {
-  return await attendanceApi.endToday();
+  const classId = await classesApi.getSelectedClassId();
+  if (!classId) throw new Error('No class selected');
+  return await attendanceApi.endToday(classId);
 }
 
 export async function nukeAllData(): Promise<void> {

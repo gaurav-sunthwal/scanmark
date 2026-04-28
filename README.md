@@ -7,6 +7,7 @@ Complete attendance management system with mobile app and backend API integratio
 A full-stack attendance tracking solution with:
 - **Mobile App** (React Native + Expo) - Scan barcodes to mark attendance
 - **Backend API** (Next.js + PostgreSQL) - Centralized data storage
+- **Face Recognition API** (FastAPI + Python) - AI-powered facial biometric tracking
 - **JWT Authentication** - Secure login system
 - **Real-time Sync** - Data shared across devices
 - **Offline Mode** - Works without internet
@@ -19,7 +20,14 @@ cd attendance-app
 npm run dev
 ```
 
-### 2. Start Mobile App
+### 2. Start Face Recognition API
+```bash
+cd attendance-system/backend
+# Install dependencies: pip install -r requirements.txt
+python3 main.py
+```
+
+### 3. Start Mobile App
 ```bash
 cd scanmark
 npm start
@@ -40,6 +48,7 @@ npm start
 
 ### Mobile App
 - 📸 Barcode/QR code scanning
+- 👤 Face Recognition (Single & Group)
 - 🔐 JWT authentication
 - 📅 Date-based filtering with calendar
 - 📊 Real-time statistics
@@ -55,11 +64,18 @@ npm start
 - 🏥 Health check
 - 🗄️ PostgreSQL database
 
+### Face Recognition API
+- 👤 Student face enrollment
+- 🔍 Individual face recognition
+- 👥 Group face recognition (Multiple faces)
+- 🖼️ Student photo serving
+- ✅ Enrollment status verification
+
 ## 🏗️ Project Structure
 
 ```
 .
-├── attendance-app/          # Next.js Backend API
+├── attendance-app/          # Next.js Backend API (Port 3000)
 │   ├── src/
 │   │   ├── app/
 │   │   │   └── api/
@@ -72,6 +88,12 @@ npm start
 │   │       ├── db.ts        # Database connection
 │   │       └── mock-db.ts   # Mock data
 │   └── .env.local           # Environment variables
+│
+├── attendance-system/       # Face Recognition Backend (Port 8000)
+│   └── backend/
+│       ├── main.py          # FastAPI server
+│       ├── routes/          # API endpoints
+│       └── services/        # Face logic & AWS integration
 │
 ├── scanmark/                # React Native Mobile App
 │   ├── app/
@@ -111,6 +133,14 @@ npm start
 
 ### Health
 - `GET /api/health` - Check server status
+
+### Face Recognition (FastAPI)
+- `POST /enroll` - Enroll student face
+- `DELETE /enroll/:prn` - Remove enrollment
+- `POST /recognize` - Identify student
+- `POST /recognize-group` - Multi-face recognition
+- `GET /enroll/status/:prn` - Check enrollment status
+- `GET /photo/:prn` - Get student photo
 
 ## 🔐 Authentication
 
@@ -157,6 +187,13 @@ npm start
 - PostgreSQL (Neon)
 - JWT (jsonwebtoken)
 - Drizzle ORM
+
+### Face AI
+- FastAPI (Python)
+- Face Recognition Library
+- OpenCV / Dlib
+- AWS S3 (Photo storage)
+- DynamoDB (Encodings)
 
 ### Mobile
 - React Native

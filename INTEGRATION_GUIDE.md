@@ -6,7 +6,8 @@ Complete guide for the integrated attendance management system with mobile app a
 
 This system consists of:
 - **attendance-app**: Next.js backend API with PostgreSQL database
-- **scanmark**: React Native mobile app with barcode scanning
+- **attendance-system**: FastAPI face recognition backend with AWS integration
+- **scanmark**: React Native mobile app with barcode and face scanning
 
 Both apps share the same database and sync data in real-time.
 
@@ -39,7 +40,25 @@ npm run dev
 
 The backend will run on `http://localhost:3000`
 
-### 2. Mobile App Setup (scanmark)
+### 2. Face Recognition Setup (attendance-system)
+
+```bash
+cd attendance-system/backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI server
+python3 main.py
+```
+
+The Face API will run on `http://localhost:8000`
+
+### 3. Mobile App Setup (scanmark)
 
 ```bash
 cd scanmark
@@ -175,6 +194,32 @@ GET /api/health
 Response: { status: "ok" }
 ```
 
+#### Face Recognition Endpoints (Port 8000)
+
+```
+POST /enroll
+Body: FormData { image, name, studentId }
+Response: { success, studentId }
+
+POST /recognize
+Body: { photo_base64, class_name, date }
+Response: { success, studentId, name, prn }
+
+POST /recognize-group
+Body: { photo_base64, class_name, date }
+Response: { success, recognized: [...] }
+
+GET /enroll/status/:prn
+Response: { enrolled: boolean }
+
+POST /enroll/check
+Body: { prns: string[] }
+Response: { enrolled: string[] }
+
+GET /photo/:prn
+Response: Student Photo (Image)
+```
+
 ## 🔄 Data Synchronization
 
 ### API Mode (Online)
@@ -246,6 +291,7 @@ const API_BASE_URL = 'https://your-domain.com/api';
 
 // For testing on physical device (use your computer's IP)
 const API_BASE_URL = 'http://192.168.1.100:3000/api';
+const FACE_API_BASE_URL = 'http://192.168.1.100:8000';
 ```
 
 ### JWT Secret

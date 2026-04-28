@@ -5,16 +5,20 @@ import { AttendanceRecord, Student } from './types';
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
 // Set this to true to use production URLs, false for local development
-const IS_PROD = true;
+const IS_PROD = false;
 
-const SERVER_IP = '10.67.152.26';
-const API_BASE_URL = IS_PROD 
-  ? 'https://scanmark-ksrz.vercel.app/api' 
+const SERVER_IP = '10.23.99.7';
+const API_BASE_URL = IS_PROD
+  ? 'https://scanmark-ksrz.vercel.app/api'
   : `http://${SERVER_IP}:3000/api`;
 
-const FACE_API_BASE_URL = IS_PROD 
-  ? 'https://scanmark-nmw9.onrender.com' 
+const FACE_API_BASE_URL = IS_PROD
+  ? 'https://scanmark-face-api-662936435587.asia-south1.run.app/'
   : `http://${SERVER_IP}:8000`;
+
+const TOKEN_KEY = 'scanmark_auth_token';
+const USER_KEY = 'scanmark_user_data';
+const SELECTED_CLASS_KEY = 'scanmark_selected_class';
 
 
 // Storage wrapper that works in Expo Go
@@ -128,7 +132,7 @@ export const studentsApi = {
     return backendStudents.map(s => {
       const prn = s.roll_number;
       const imageUrl = `${FACE_API_BASE_URL}/photo/${prn}?t=${Date.now()}`;
-      
+
       return {
         id: s.id ? s.id.toString() : 'undefined',
         name: s.name,
@@ -540,7 +544,7 @@ export const faceApi = {
     const response = await fetch(`${FACE_API_BASE_URL}/recognize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         photo_base64: base64,
         class_name: className,
         date: date
@@ -553,7 +557,7 @@ export const faceApi = {
     const response = await fetch(`${FACE_API_BASE_URL}/recognize-group`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         photo_base64: base64,
         class_name: className,
         date: date
