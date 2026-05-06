@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, Image } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -48,7 +48,11 @@ export default function LoginScreen() {
           {/* Logo/Header */}
           <Animated.View entering={FadeInUp.delay(100)} style={styles.header}>
             <View style={styles.logoContainer}>
-              <Ionicons name="scan" size={64} color="#3b82f6" />
+              <Image 
+                source={require('@/assets/logo/logo.png')} 
+                style={styles.logoImage} 
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.title}>ScanMark</Text>
             <Text style={styles.subtitle}>Attendance Management System</Text>
@@ -139,11 +143,13 @@ const styles = StyleSheet.create({
   logoContainer: {
     width: 120,
     height: 120,
-    borderRadius: 60,
-    backgroundColor: '#dbeafe',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+  },
+  logoImage: {
+    width: 120,
+    height: 120,
   },
   title: {
     fontSize: 32,

@@ -74,6 +74,19 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
   } catch (error: any) {
     console.error('Create student error:', error);
+    
+    // Check for Postgres unique constraint violation (including Drizzle's wrapped errors)
+    const errorString = String(error) + (error.cause ? String(error.cause) : '');
+    const isDuplicate = error.code === '23505' || 
+                        (error.cause && error.cause.code === '23505') || 
+                        errorString.includes('duplicate key value');
+
+    if (isDuplicate) {
+      return NextResponse.json({ 
+        error: 'A student with this roll number or barcode already exists in this class.' 
+      }, { status: 409 });
+    }
+
     return NextResponse.json({ 
       error: error.message || 'Failed to create student' 
     }, { status: 500 });

@@ -15,7 +15,7 @@ npm run dev
 
 ```bash
 cd attendance-system/backend
-# python3 main.py
+python3 main.py
 ```
 
 ✅ Face API running at: http://localhost:8000

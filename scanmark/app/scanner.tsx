@@ -280,7 +280,7 @@ export default function ScannerScreen() {
 
     } catch (error) {
       console.error('Failed to create student:', error);
-      Alert.alert('Error', 'Failed to add student. Please try again.');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to add student. Please try again.');
     } finally {
       setIsSaving(false);
     }

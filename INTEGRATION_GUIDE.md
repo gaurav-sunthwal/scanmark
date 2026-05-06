@@ -112,25 +112,31 @@ You can skip login to use the app in offline mode with local storage only.
    - Visual feedback
    - End-of-day batch marking
 
-4. **Attendance Records**
+4. **Face Recognition**
+   - Individual face recognition
+   - Group recognition (Multiple students)
+   - Real-time attendance marking
+   - Enrollment flow with photo upload
+
+5. **Attendance Records**
    - Filter by: Today, Specific Date, All Time
    - Calendar date picker
    - Present/Absent statistics
    - Student details
 
-5. **Student Management**
+6. **Student Management**
    - Import from Excel
    - View all students
    - Search functionality
    - Add manually
 
-6. **Settings**
+7. **Settings**
    - Toggle API sync mode
    - Connection status
    - User profile
    - Logout
 
-7. **Export**
+8. **Export**
    - Export to Excel
    - Share functionality
    - Date range selection
