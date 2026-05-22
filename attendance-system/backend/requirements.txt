@@ -2,8 +2,6 @@ fastapi
 uvicorn
 python-multipart
 boto3
-face_recognition
-numpy
 pillow
 python-dotenv
 pydantic

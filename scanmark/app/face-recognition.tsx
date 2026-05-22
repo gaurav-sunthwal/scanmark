@@ -103,8 +103,13 @@ export default function FaceRecognitionScreen() {
         }
       }
     } catch (error: any) {
-      console.error(error);
-      alert(error.message || 'Recognition failed');
+      console.error('Recognition error:', error.message);
+      
+      if (error.message === 'Student not recognized') {
+        alert('Face not registered. Please enroll this student first!');
+      } else {
+        alert(error.message || 'Recognition failed');
+      }
     } finally {
       setLoading(false);
       scanAnim.stopAnimation();

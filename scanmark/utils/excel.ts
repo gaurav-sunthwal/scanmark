@@ -68,7 +68,20 @@ export async function exportAttendanceToExcel(classId?: string): Promise<string>
     
     dates.forEach(date => {
       const record = attendance.find(a => a.studentId === student.id && a.date === date);
-      row[date] = record ? (record.status === 'present' ? 'P' : 'A') : '';
+      if (record) {
+        if (record.status === 'present') {
+          const time = new Date(record.timestamp).toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: true 
+          });
+          row[date] = `P (${time})`;
+        } else {
+          row[date] = 'A';
+        }
+      } else {
+        row[date] = '';
+      }
     });
     
     return row;
@@ -80,7 +93,14 @@ export async function exportAttendanceToExcel(classId?: string): Promise<string>
   
   // Generate base64 output
   const wbout = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
-  const fileName = `Attendance_${new Date().toISOString().split('T')[0]}.xlsx`;
+  
+  // Create filename with date and time
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const timeStr = now.getHours().toString().padStart(2, '0') + 
+                 now.getMinutes().toString().padStart(2, '0') + 
+                 now.getSeconds().toString().padStart(2, '0');
+  const fileName = `Attendance_${dateStr}_${timeStr}.xlsx`;
   
   // Create file and write base64 content
   const file = new File(Paths.cache, fileName);

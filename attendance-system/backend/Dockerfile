@@ -1,34 +1,28 @@
-# Use a standard Python image
 FROM python:3.9-slim
 
-# Install system dependencies (needed for face_recognition)
+# 1. Install minimal system libs for OpenCV (if needed) and basics
+USER root
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    libopenblas-dev \
-    liblapack-dev \
-    libx11-dev \
-    libgtk-3-dev \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# 2. Create user
+RUN useradd -m -u 1000 user
+USER user
 WORKDIR /app
+ENV PATH="/home/user/.local/bin:$PATH"
 
-# Copy requirements FIRST to leverage Docker cache
-COPY requirements.txt .
-
-# Install dependencies
-# We use --no-cache-dir to keep the image small
+# 3. Copy and install requirements
+# (dlib and face_recognition removed - now using AWS Rekognition)
+COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . .
+# 4. Copy app files
+COPY --chown=user . .
 
-# Expose the port
+# Set default port for AWS
+ENV PORT=8080
 EXPOSE 8080
 
-# Run the app
-# Note: Google Cloud Run expects the app to listen on the $PORT environment variable
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
-
-
+CMD ["python", "main.py"]

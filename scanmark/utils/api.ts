@@ -7,14 +7,14 @@ import { AttendanceRecord, Student } from './types';
 // Set this to true to use production URLs, false for local development
 const IS_PROD = false;
 
-const SERVER_IP = '10.23.99.7';
+const SERVER_IP = '10.196.250.26';
 const API_BASE_URL = IS_PROD
   ? 'https://scanmark-ksrz.vercel.app/api'
   : `http://${SERVER_IP}:3000/api`;
 
 const FACE_API_BASE_URL = IS_PROD
   ? 'https://scanmark-face-api-662936435587.asia-south1.run.app/'
-  : `http://${SERVER_IP}:8000`;
+  : `http://${SERVER_IP}:8080`;
 
 const TOKEN_KEY = 'scanmark_auth_token';
 const USER_KEY = 'scanmark_user_data';
@@ -64,8 +64,10 @@ async function getHeaders(): Promise<HeadersInit> {
 // Helper function to handle API responses
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({}));
+    // Support both Next.js 'error' and FastAPI 'detail' formats
+    const message = error.detail || error.error || `HTTP ${response.status}`;
+    throw new Error(message);
   }
   return response.json();
 }
@@ -199,16 +201,17 @@ export const studentsApi = {
   // Bulk import students
   import: async (students: Omit<Student, 'id'>[], classId: string): Promise<{ message: string; students: Student[] }> => {
     const headers = await getHeaders();
-    const response = await fetch(`${API_BASE_URL}/students/import`, {
+    const response = await fetch(`${API_BASE_URL}/students/bulk`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        class_id: parseInt(classId),
         students: students.map(s => ({
           name: s.name,
           roll_number: s.rollNumber,
           barcode: s.barcode,
+          class_id: parseInt(classId),
         })),
+        class_id: parseInt(classId),
       }),
     });
 
@@ -216,89 +219,130 @@ export const studentsApi = {
     return {
       message: data.message,
       students: data.students.map((s: any) => ({
-        id: s.id ? s.id.toString() : 'undefined',
+        id: s.id.toString(),
         name: s.name,
         rollNumber: s.roll_number,
         barcode: s.barcode,
-        classId: s.class_id?.toString(),
+        classId: s.class_id.toString(),
       })),
     };
-  },
-
-  // Delete students (optionally by class)
-  deleteAll: async (classId?: string): Promise<void> => {
-    const headers = await getHeaders();
-    let url = `${API_BASE_URL}/students`;
-    if (classId) url += `?class_id=${classId}`;
-
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers,
-      body: JSON.stringify({}),
-    });
-    await handleResponse<any>(response);
   },
 };
 
 // Attendance API
 export const attendanceApi = {
-  // Get attendance records (optionally by class)
-  getAll: async (classId?: string, limit?: number, offset?: number): Promise<(AttendanceRecord & { name?: string, roll_number?: string })[]> => {
+  // Get attendance by date and class
+  getByDate: async (date: string, classId: string): Promise<{ records: AttendanceRecord[]; stats: any }> => {
     const headers = await getHeaders();
-    let url = `${API_BASE_URL}/attendance`;
-    const params = new URLSearchParams();
-    if (classId) params.append('class_id', classId);
-    if (limit) params.append('limit', limit.toString());
-    if (offset) params.append('offset', offset.toString());
+    const response = await fetch(`${API_BASE_URL}/attendance?date=${date}&class_id=${classId}`, { headers });
+    const data = await handleResponse<any>(response);
 
-    if (params.toString()) url += `?${params.toString()}`;
+    return {
+      records: data.records.map((r: any) => ({
+        id: r.id.toString(),
+        studentId: r.student_id.toString(),
+        classId: r.class_id?.toString(),
+        date: r.date,
+        status: r.status,
+        timestamp: new Date(r.created_at).getTime(),
+      })),
+      stats: data.stats,
+    };
+  },
 
-    const response = await fetch(url, { headers });
-    const records = await handleResponse<any[]>(response);
+  // Get report data (with student names)
+  getReport: async (date: string, classId: string): Promise<{ records: any[]; stats: any }> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/attendance/report?date=${date}&class_id=${classId}`, { headers });
+    const data = await handleResponse<any>(response);
 
-    return records.map(r => ({
+    return {
+      records: data.records.map((r: any) => ({
+        id: r.id.toString(),
+        studentId: r.student_id.toString(),
+        name: r.student_name,
+        rollNumber: r.roll_number,
+        status: r.status,
+        timestamp: new Date(r.created_at).getTime(),
+      })),
+      stats: data.stats,
+    };
+  },
+
+  // Get summary for a date range
+  getSummary: async (classId: string, startDate: string, endDate: string): Promise<any> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/attendance/summary?class_id=${classId}&start_date=${startDate}&end_date=${endDate}`, { headers });
+    return handleResponse<any>(response);
+  },
+
+  // Get student attendance history
+  getStudentHistory: async (studentId: string): Promise<AttendanceRecord[]> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/attendance/student/${studentId}`, { headers });
+    const data = await handleResponse<any[]>(response);
+
+    return data.map((r: any) => ({
       id: r.id.toString(),
       studentId: r.student_id.toString(),
       classId: r.class_id?.toString(),
       date: r.date,
       status: r.status,
       timestamp: new Date(r.created_at).getTime(),
-      name: r.name,
-      roll_number: r.roll_number,
     }));
   },
 
-  // Mark attendance by barcode (Optimized for scanner)
-  scan: async (barcode: string, classId: string, date: string, status: 'present' | 'absent' = 'present'): Promise<{ student: Student, record: AttendanceRecord, stats: { totalStudents: number, present: number, absent: number } }> => {
+  // Get detailed session data
+  getSession: async (classId: string, date: string): Promise<any> => {
     const headers = await getHeaders();
-    const response = await fetch(`${API_BASE_URL}/attendance/scan`, {
+    const response = await fetch(`${API_BASE_URL}/attendance/session?class_id=${classId}&date=${date}`, { headers });
+    const data = await handleResponse<any>(response);
+
+    return {
+      records: data.records.map((r: any) => ({
+        id: r.id.toString(),
+        studentId: r.student_id.toString(),
+        name: r.student_name,
+        rollNumber: r.roll_number,
+        status: r.status,
+        timestamp: new Date(r.created_at).getTime(),
+      })),
+      stats: data.stats,
+    };
+  },
+
+  // Sync offline records
+  sync: async (records: Omit<AttendanceRecord, 'id' | 'timestamp'>[]): Promise<{ count: number }> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/attendance/sync`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ records }),
+    });
+    return handleResponse<{ count: number }>(response);
+  },
+
+  // Mock function for scanner sync if backend doesn't support bulk yet
+  syncScanner: async (studentPrns: string[], classId: string, date: string): Promise<any> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/attendance/sync-scanner`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        barcode,
+        prns: studentPrns,
         class_id: parseInt(classId),
         date,
-        status,
       }),
     });
-
     const data = await handleResponse<any>(response);
     return {
-      student: {
-        id: data.student.id.toString(),
-        name: data.student.name,
-        rollNumber: data.student.roll_number,
-        barcode: data.student.barcode,
-        classId: data.student.class_id?.toString(),
-      },
-      record: {
-        id: data.record.id.toString(),
-        studentId: data.student.id.toString(),
-        classId: data.student.class_id?.toString(),
-        date: data.record.date,
-        status: data.record.status,
+      records: data.records.map((r: any) => ({
+        id: r.id.toString(),
+        studentId: r.student_id.toString(),
+        date: r.date,
+        status: r.status,
         timestamp: Date.now(),
-      },
+      })),
       stats: {
         totalStudents: data.stats.totalStudents,
         present: data.stats.present,
