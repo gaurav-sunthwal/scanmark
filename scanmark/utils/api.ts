@@ -5,16 +5,15 @@ import { AttendanceRecord, Student } from './types';
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
 // Set this to true to use production URLs, false for local development
-const IS_PROD = false;
+const IS_PROD = true;
 
 const SERVER_IP = '10.196.250.26';
 const API_BASE_URL = IS_PROD
   ? 'https://scanmark-ksrz.vercel.app/api'
   : `http://${SERVER_IP}:3000/api`;
 
-const FACE_API_BASE_URL = IS_PROD
-  ? 'https://scanmark-face-api-662936435587.asia-south1.run.app/'
-  : `http://${SERVER_IP}:8080`;
+// Always use the deployed Render cloud API to save local resources on your Mac
+const FACE_API_BASE_URL = 'https://scanmark-2.onrender.com';
 
 const TOKEN_KEY = 'scanmark_auth_token';
 const USER_KEY = 'scanmark_user_data';
