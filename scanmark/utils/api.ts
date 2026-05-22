@@ -230,6 +230,30 @@ export const studentsApi = {
 
 // Attendance API
 export const attendanceApi = {
+  // Get all attendance records with optional classId and limit
+  getAll: async (classId?: string, limit?: number): Promise<any[]> => {
+    const headers = await getHeaders();
+    let url = `${API_BASE_URL}/attendance`;
+    const params = [];
+    if (classId) params.push(`class_id=${classId}`);
+    if (limit) params.push(`limit=${limit}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
+
+    const response = await fetch(url, { headers });
+    const data = await handleResponse<any[]>(response);
+
+    return data.map((r: any) => ({
+      id: r.id.toString(),
+      studentId: r.student_id.toString(),
+      classId: r.class_id?.toString(),
+      date: r.date,
+      status: r.status,
+      timestamp: new Date(r.created_at).getTime(),
+      name: r.name,
+      roll_number: r.roll_number,
+    }));
+  },
+
   // Get attendance by date and class
   getByDate: async (date: string, classId: string): Promise<{ records: AttendanceRecord[]; stats: any }> => {
     const headers = await getHeaders();
