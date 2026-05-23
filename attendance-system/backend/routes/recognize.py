@@ -42,7 +42,10 @@ async def recognize(request: RecognizeRequest):
             # Verify they belong to the requested class
             if matched_student.get('class') != request.class_name:
                 print(f"DEBUG: Student {matched_prn} found but belongs to class {matched_student.get('class')}, not {request.class_name}")
-                # We can choose to either fail or allow it. For this system, we allow it if found.
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Student belongs to class {matched_student.get('class')}, not {request.class_name}"
+                )
         except HTTPException:
             raise
         except Exception as e:
