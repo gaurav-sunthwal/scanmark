@@ -20,6 +20,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
       "package": "com.gaurav_sunthwal.scanandadd"
@@ -66,6 +68,12 @@
       "eas": {
         "projectId": "75959a41-fbd5-4ab2-ad30-98328fe0d7b5"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/75959a41-fbd5-4ab2-ad30-98328fe0d7b5"
     }
   }
 }

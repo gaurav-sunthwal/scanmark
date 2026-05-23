@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
 import CustomCamera from '@/components/Camera';
-import { faceApi, classesApi, attendanceApi } from '@/utils/api';
+import { faceApi, classesApi, attendanceApi, studentsApi } from '@/utils/api';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { StatusBar } from 'expo-status-bar';
@@ -13,18 +13,15 @@ const { width, height } = Dimensions.get('window');
 
 export default function FaceRecognitionScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const classId = params.classId as string;
+  const className = (params.className as string) || 'Select Class';
   const [loading, setLoading] = useState(false);
   const [recognizedStudent, setRecognizedStudent] = useState<any>(null);
-  const [className, setClassName] = useState('Select Class');
-  const [classId, setClassId] = useState<string | null>(null);
   
   // Animation values
   const panelTranslateY = useRef(new Animated.Value(height)).current;
   const scanAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    loadCurrentClass();
-  }, []);
 
   useEffect(() => {
     if (recognizedStudent) {
@@ -33,20 +30,6 @@ export default function FaceRecognitionScreen() {
       hidePanel();
     }
   }, [recognizedStudent]);
-
-  const loadCurrentClass = async () => {
-    try {
-      const id = await classesApi.getSelectedClassId();
-      if (id) {
-        setClassId(id);
-        const classes = await classesApi.getAll();
-        const current = classes.find(c => c.id.toString() === id.toString());
-        if (current) setClassName(current.name);
-      }
-    } catch (error) {
-      console.warn('Failed to load class info:', error);
-    }
-  };
 
   const showPanel = () => {
     Animated.spring(panelTranslateY, {
@@ -92,6 +75,18 @@ export default function FaceRecognitionScreen() {
 
     try {
       const result = await faceApi.recognize(base64, className, date);
+      
+      // Client-side validation: check if the recognized student belongs to this class!
+      if (classId) {
+        const students = await studentsApi.getAll(classId);
+        const isRegistered = students.some(
+          s => s.id === result.studentId || s.rollNumber === result.prn
+        );
+        if (!isRegistered) {
+          throw new Error(`Student "${result.name}" is not registered in this class!`);
+        }
+      }
+      
       setRecognizedStudent(result);
       
       // Sync with Next.js database

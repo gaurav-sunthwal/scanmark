@@ -80,7 +80,8 @@ export async function saveAttendance(records: AttendanceRecord[]): Promise<void>
 
 export async function markAttendance(studentId: string, status: 'present' | 'absent'): Promise<AttendanceRecord> {
   const today = new Date().toISOString().split('T')[0];
-  return await attendanceApi.mark(studentId, today, status);
+  const classId = await classesApi.getSelectedClassId() || '';
+  return await attendanceApi.mark(studentId, today, status, classId);
 }
 
 export async function getTodayAttendance(): Promise<AttendanceRecord[]> {

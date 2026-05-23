@@ -1,5 +1,5 @@
 import { AttendanceRecord, Student } from '@/utils/types';
-import { statsApi, studentsApi, attendanceApi, authApi, classesApi } from '@/utils/api';
+import { statsApi, studentsApi, attendanceApi, authApi, classesApi, memoryCache } from '@/utils/api';
 import { globalState } from '@/utils/state';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -25,13 +25,13 @@ export default function DashboardScreen() {
 
   const loadData = useCallback(async (classId?: string, force = false) => {
     try {
-      setLoading(true);
       const isLoggedIn = await authApi.isLoggedIn();
       if (!isLoggedIn) {
         router.replace('/login');
         return;
       }
 
+      // 1. Get classes. Memory cached so resolves instantly.
       const allClasses = await classesApi.getAll();
       setClasses(allClasses);
 
@@ -61,48 +61,87 @@ export default function DashboardScreen() {
       if (activeClass) {
         const idStr = activeClass.id.toString();
         
-        // Cache: skip loading if we have data for this class and not forcing
-        if (idStr === lastLoadedClassId.current && dataLoaded.current && !force) {
-          console.log('Using cached dashboard data');
-          return;
+        // Stale-While-Revalidate pattern:
+        // Try reading cached stats and recent activity immediately (0ms wait)
+        const hasCache = memoryCache.stats[idStr] && memoryCache.attendance[idStr];
+        
+        if (hasCache && !force) {
+          const cachedStats = memoryCache.stats[idStr];
+          const cachedAttendance = memoryCache.attendance[idStr].slice(0, 5);
+          
+          setStats({
+            total: cachedStats.totalStudents,
+            present: cachedStats.present,
+            absent: cachedStats.absent
+          });
+          setHasStudents(cachedStats.totalStudents > 0);
+          
+          setRecentScans(cachedAttendance.map(record => ({
+            ...record,
+            student: {
+              id: record.studentId,
+              name: record.name || 'Unknown',
+              rollNumber: record.roll_number || '',
+              barcode: '', 
+              classId: record.classId || '',
+            }
+          })));
+          
+          setLoading(false);
+          console.log('[CACHE] Served dashboard instantly from local cache');
+        } else {
+          setLoading(true);
         }
 
-        setLoading(true);
-        // Optimize: Fetch only necessary stats and recent scans
-        const [statsData, recentAttendance] = await Promise.all([
-          statsApi.get(idStr),
-          attendanceApi.getAll(idStr, 5), // Fetch only 5 most recent scans
-        ]);
-        
-        setStats({
-          total: statsData.totalStudents,
-          present: statsData.present,
-          absent: statsData.absent
-        });
-        setHasStudents(statsData.totalStudents > 0);
-        
-        const recent = recentAttendance.map(record => ({
-          ...record,
-          student: {
-            id: record.studentId,
-            name: record.name || 'Unknown',
-            rollNumber: record.roll_number || '',
-            barcode: '', 
-            classId: record.classId || '',
+        // Silent/Background Revalidation fetch
+        const fetchFreshData = async () => {
+          try {
+            const [statsData, recentAttendance] = await Promise.all([
+              statsApi.get(idStr, true),
+              attendanceApi.getAll(idStr, 5, true),
+            ]);
+            
+            setStats({
+              total: statsData.totalStudents,
+              present: statsData.present,
+              absent: statsData.absent
+            });
+            setHasStudents(statsData.totalStudents > 0);
+            
+            const recent = recentAttendance.map(record => ({
+              ...record,
+              student: {
+                id: record.studentId,
+                name: record.name || 'Unknown',
+                rollNumber: record.roll_number || '',
+                barcode: '', 
+                classId: record.classId || '',
+              }
+            }));
+            
+            setRecentScans(recent);
+            lastLoadedClassId.current = idStr;
+            dataLoaded.current = true;
+          } catch (fetchErr) {
+            console.error('Failed to background load dashboard data:', fetchErr);
+          } finally {
+            setLoading(false);
           }
-        }));
-        
-        setRecentScans(recent);
-        lastLoadedClassId.current = idStr;
-        dataLoaded.current = true;
+        };
+
+        if (hasCache && !force) {
+          fetchFreshData(); // Run silently in background
+        } else {
+          await fetchFreshData(); // Blocking load
+        }
       } else {
         setStats({ total: 0, present: 0, absent: 0 });
         setRecentScans([]);
         setHasStudents(false);
+        setLoading(false);
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
-    } finally {
       setLoading(false);
     }
   }, [params.classId, router]);
@@ -316,22 +355,41 @@ export default function DashboardScreen() {
           <Text style={styles.sectionTitle}>{hasStudents ? 'Quick Actions' : 'Getting Started'}</Text>
           
           {!hasStudents ? (
-            <TouchableOpacity 
-              style={[styles.primaryAction, { backgroundColor: '#3b82f6' }]}
-              onPress={() => router.push({
-                pathname: '/students',
-                params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
-              })}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="cloud-upload" size={32} color="#fff" />
-              </View>
-              <View style={styles.actionTextContainer}>
-                <Text style={[styles.actionTitle, { color: '#fff' }]}>Import Student Data</Text>
-                <Text style={[styles.actionSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>Upload an Excel or CSV file to start taking attendance</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
-            </TouchableOpacity>
+            <View style={{ gap: 12, width: '100%' }}>
+              <TouchableOpacity 
+                style={[styles.primaryAction, { backgroundColor: '#3b82f6' }]}
+                onPress={() => router.push({
+                  pathname: '/students',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                  <Ionicons name="cloud-upload" size={32} color="#fff" />
+                </View>
+                <View style={styles.actionTextContainer}>
+                  <Text style={[styles.actionTitle, { color: '#fff' }]}>Import Student Data</Text>
+                  <Text style={[styles.actionSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>Upload an Excel or CSV file to start taking attendance</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.primaryAction, { backgroundColor: '#8b5cf6', marginTop: 8 }]}
+                onPress={() => router.push({
+                  pathname: '/scanner',
+                  params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
+                })}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                  <Ionicons name="scan-outline" size={32} color="#fff" />
+                </View>
+                <View style={styles.actionTextContainer}>
+                  <Text style={[styles.actionTitle, { color: '#fff' }]}>Scan & Add Student</Text>
+                  <Text style={[styles.actionSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>Scan a barcode to quickly register and mark a new student</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.actionRowGrid}>
               <TouchableOpacity 

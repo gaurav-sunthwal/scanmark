@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, FlatList, Dimensions, Animated, Platform } from 'react-native';
 import CustomCamera from '@/components/Camera';
-import { faceApi, classesApi, attendanceApi } from '@/utils/api';
+import { faceApi, classesApi, attendanceApi, studentsApi } from '@/utils/api';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -13,19 +13,16 @@ const { width, height } = Dimensions.get('window');
 
 export default function FaceGroupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const classId = params.classId as string;
+  const className = (params.className as string) || 'Select Class';
   const [loading, setLoading] = useState(false);
   const [recognized, setRecognized] = useState<any[]>([]);
   const [unrecognizedCount, setUnrecognizedCount] = useState(0);
-  const [className, setClassName] = useState('Select Class');
-  const [classId, setClassId] = useState<string | null>(null);
   
   // Animation values
   const panelTranslateY = useRef(new Animated.Value(height)).current;
   const scanAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    loadCurrentClass();
-  }, []);
 
   useEffect(() => {
     if (recognized.length > 0 || unrecognizedCount > 0) {
@@ -34,20 +31,6 @@ export default function FaceGroupScreen() {
       hidePanel();
     }
   }, [recognized, unrecognizedCount]);
-
-  const loadCurrentClass = async () => {
-    try {
-      const id = await classesApi.getSelectedClassId();
-      if (id) {
-        setClassId(id);
-        const classes = await classesApi.getAll();
-        const current = classes.find(c => c.id.toString() === id.toString());
-        if (current) setClassName(current.name);
-      }
-    } catch (error) {
-      console.warn('Failed to load class info:', error);
-    }
-  };
 
   const showPanel = () => {
     Animated.spring(panelTranslateY, {
@@ -95,18 +78,37 @@ export default function FaceGroupScreen() {
     try {
       const result = await faceApi.recognizeGroup(base64, className, date);
       
+      // Client-side validation: Filter out any students who are not in the current class!
+      let classRecognized = result.recognized;
+      let unrecognizedCountFromOtherClasses = 0;
+
+      if (classId && result.recognized.length > 0) {
+        const students = await studentsApi.getAll(classId);
+        const currentClassStudentIds = new Set(students.map(s => s.id));
+        const currentClassStudentPrns = new Set(students.map(s => s.rollNumber));
+
+        classRecognized = result.recognized.filter((item: any) => {
+          const isRegistered = currentClassStudentIds.has(item.studentId) || currentClassStudentPrns.has(item.prn);
+          if (!isRegistered) {
+            unrecognizedCountFromOtherClasses += 1;
+            console.log(`[FACE-GROUP] Filtered out ${item.name} (${item.prn}) - not in class roster.`);
+          }
+          return isRegistered;
+        });
+      }
+      
       // Sync with Next.js database if students were recognized
-      if (result.recognized.length > 0 && classId) {
+      if (classRecognized.length > 0 && classId) {
         try {
-          const studentIds = result.recognized.map((s: any) => s.studentId);
+          const studentIds = classRecognized.map((s: any) => s.studentId);
           await attendanceApi.bulkMark(studentIds, classId, date, 'present');
         } catch (syncError) {
           console.error('Failed to sync group attendance to main DB:', syncError);
         }
       }
 
-      setRecognized(result.recognized);
-      setUnrecognizedCount(result.unrecognized_count);
+      setRecognized(classRecognized);
+      setUnrecognizedCount(result.unrecognized_count + unrecognizedCountFromOtherClasses);
     } catch (error: any) {
       console.error(error);
       alert(error.message || 'Group recognition failed');

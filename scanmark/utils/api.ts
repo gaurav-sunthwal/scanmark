@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AttendanceRecord, Student } from './types';
 
 // Update this to your actual backend URL
@@ -18,6 +19,98 @@ const FACE_API_BASE_URL = 'https://scanmark-2.onrender.com';
 const TOKEN_KEY = 'scanmark_auth_token';
 const USER_KEY = 'scanmark_user_data';
 const SELECTED_CLASS_KEY = 'scanmark_selected_class';
+
+// --- LOCAL-FIRST CACHING SYSTEM ---
+const CACHE_KEY = 'scanmark_app_cache_v1';
+
+interface CacheData {
+  classes: any[] | null;
+  students: Record<string, Student[]>;
+  attendance: Record<string, any[]>;
+  stats: Record<string, any>;
+}
+
+export const memoryCache: CacheData = {
+  classes: null,
+  students: {},
+  attendance: {},
+  stats: {},
+};
+
+let isSavingCache = false;
+let hasPendingCacheSave = false;
+
+export async function saveCacheToDisk() {
+  if (isSavingCache) {
+    hasPendingCacheSave = true;
+    return;
+  }
+  isSavingCache = true;
+  try {
+    const serialized = JSON.stringify(memoryCache);
+    await AsyncStorage.setItem(CACHE_KEY, serialized);
+  } catch (error) {
+    console.error('Failed to save memoryCache to disk:', error);
+  } finally {
+    isSavingCache = false;
+    if (hasPendingCacheSave) {
+      hasPendingCacheSave = false;
+      saveCacheToDisk();
+    }
+  }
+}
+
+export async function loadCacheFromDisk() {
+  try {
+    const serialized = await AsyncStorage.getItem(CACHE_KEY);
+    if (serialized) {
+      const parsed = JSON.parse(serialized);
+      if (parsed) {
+        if (Array.isArray(parsed.classes)) memoryCache.classes = parsed.classes;
+        if (parsed.students) memoryCache.students = parsed.students;
+        if (parsed.attendance) memoryCache.attendance = parsed.attendance;
+        if (parsed.stats) memoryCache.stats = parsed.stats;
+        console.log('[CACHE] Loaded successfully from disk');
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load memoryCache from disk:', error);
+  }
+}
+
+export function invalidateCache(type?: 'classes' | 'students' | 'attendance' | 'stats' | 'all', classId?: string) {
+  if (!type || type === 'all') {
+    memoryCache.classes = null;
+    memoryCache.students = {};
+    memoryCache.attendance = {};
+    memoryCache.stats = {};
+  } else if (type === 'classes') {
+    memoryCache.classes = null;
+  } else if (type === 'students') {
+    if (classId) {
+      delete memoryCache.students[classId];
+    } else {
+      memoryCache.students = {};
+    }
+  } else if (type === 'attendance') {
+    if (classId) {
+      delete memoryCache.attendance[classId];
+    } else {
+      memoryCache.attendance = {};
+    }
+  } else if (type === 'stats') {
+    if (classId) {
+      delete memoryCache.stats[classId];
+    } else {
+      memoryCache.stats = {};
+    }
+  }
+  saveCacheToDisk();
+}
+
+// Load cache immediately
+loadCacheFromDisk();
+// ----------------------------------
 
 
 // Storage wrapper that works in Expo Go
@@ -74,10 +167,19 @@ async function handleResponse<T>(response: Response): Promise<T> {
 // Classes API
 export const classesApi = {
   // Get all classes
-  getAll: async (): Promise<any[]> => {
+  getAll: async (force = false): Promise<any[]> => {
+    if (!force && memoryCache.classes) {
+      console.log('[CACHE] Returning cached classes list');
+      // Silent background fetch to update cache for next time
+      classesApi.getAll(true).catch(err => console.warn('[CACHE] Silent classes background refresh failed:', err));
+      return memoryCache.classes;
+    }
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE_URL}/classes`, { headers });
-    return handleResponse<any[]>(response);
+    const data = await handleResponse<any[]>(response);
+    memoryCache.classes = data;
+    saveCacheToDisk();
+    return data;
   },
 
   // Create new class
@@ -88,7 +190,11 @@ export const classesApi = {
       headers,
       body: JSON.stringify({ name, description }),
     });
-    return handleResponse<any>(response);
+    const data = await handleResponse<any>(response);
+    // Invalidate classes cache
+    memoryCache.classes = null;
+    saveCacheToDisk();
+    return data;
   },
 
   // Delete class
@@ -99,6 +205,12 @@ export const classesApi = {
       headers,
     });
     await handleResponse<any>(response);
+    // Invalidate cache for this class and general classes list
+    memoryCache.classes = null;
+    delete memoryCache.students[id];
+    delete memoryCache.attendance[id];
+    delete memoryCache.stats[id];
+    saveCacheToDisk();
   },
 
   // Session persistence
@@ -109,7 +221,13 @@ export const classesApi = {
 // Students API
 export const studentsApi = {
   // Get all students (optionally by class)
-  getAll: async (classId?: string): Promise<Student[]> => {
+  getAll: async (classId?: string, force = false): Promise<Student[]> => {
+    if (classId && !force && memoryCache.students[classId]) {
+      console.log(`[CACHE] Returning cached students for class ${classId}`);
+      // Silent background fetch to update cache for next time
+      studentsApi.getAll(classId, true).catch(err => console.warn('[CACHE] Silent students background refresh failed:', err));
+      return memoryCache.students[classId];
+    }
     const headers = await getHeaders();
     let url = `${API_BASE_URL}/students`;
     if (classId) url += `?class_id=${classId}`;
@@ -130,7 +248,7 @@ export const studentsApi = {
     }
 
     // 3. Transform backend format to mobile app format
-    return backendStudents.map(s => {
+    const transformed = backendStudents.map(s => {
       const prn = s.roll_number;
       const imageUrl = `${FACE_API_BASE_URL}/photo/${prn}?t=${Date.now()}`;
 
@@ -141,10 +259,15 @@ export const studentsApi = {
         barcode: s.barcode,
         classId: s.class_id?.toString(),
         imageUrl: imageUrl,
-        // Now using status from AWS (DynamoDB)
         isFaceEnrolled: enrolledPrns.includes(prn),
       };
     });
+
+    if (classId) {
+      memoryCache.students[classId] = transformed;
+      saveCacheToDisk();
+    }
+    return transformed;
   },
 
   // Get student by barcode
@@ -188,19 +311,40 @@ export const studentsApi = {
     });
 
     const student = await handleResponse<any>(response);
-    return {
+    const transformed: Student = {
       id: student.id ? student.id.toString() : 'undefined',
       name: student.name,
       rollNumber: student.roll_number,
       barcode: student.barcode,
       classId: student.class_id?.toString(),
+      imageUrl: `${FACE_API_BASE_URL}/photo/${student.roll_number}?t=${Date.now()}`,
+      isFaceEnrolled: false,
     };
+
+    // Update local cache
+    if (memoryCache.students[classId]) {
+      memoryCache.students[classId] = [...memoryCache.students[classId], transformed];
+    } else {
+      memoryCache.students[classId] = [transformed];
+    }
+
+    // Increment total in stats cache
+    if (memoryCache.stats[classId]) {
+      memoryCache.stats[classId] = {
+        ...memoryCache.stats[classId],
+        totalStudents: (memoryCache.stats[classId].totalStudents || 0) + 1,
+        unmarked: (memoryCache.stats[classId].unmarked || 0) + 1,
+      };
+    }
+
+    saveCacheToDisk();
+    return transformed;
   },
 
   // Bulk import students
   import: async (students: Omit<Student, 'id'>[], classId: string): Promise<{ message: string; students: Student[] }> => {
     const headers = await getHeaders();
-    const response = await fetch(`${API_BASE_URL}/students/bulk`, {
+    const response = await fetch(`${API_BASE_URL}/students/import`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -215,34 +359,58 @@ export const studentsApi = {
     });
 
     const data = await handleResponse<any>(response);
+    const imported = data.students.map((s: any) => ({
+      id: s.id.toString(),
+      name: s.name,
+      rollNumber: s.roll_number,
+      barcode: s.barcode,
+      classId: s.class_id.toString(),
+      imageUrl: `${FACE_API_BASE_URL}/photo/${s.roll_number}?t=${Date.now()}`,
+      isFaceEnrolled: false,
+    }));
+
+    // Invalidate local cache
+    delete memoryCache.students[classId];
+    delete memoryCache.stats[classId];
+    saveCacheToDisk();
+
     return {
       message: data.message,
-      students: data.students.map((s: any) => ({
-        id: s.id.toString(),
-        name: s.name,
-        rollNumber: s.roll_number,
-        barcode: s.barcode,
-        classId: s.class_id.toString(),
-      })),
+      students: imported,
     };
+  },
+
+  // Delete all students (primarily clears local cache and resets)
+  deleteAll: async (): Promise<void> => {
+    console.log('[CACHE] Clearing students cache');
+    memoryCache.students = {};
+    saveCacheToDisk();
   },
 };
 
 // Attendance API
 export const attendanceApi = {
   // Get all attendance records with optional classId and limit
-  getAll: async (classId?: string, limit?: number): Promise<any[]> => {
+  getAll: async (classId?: string, limit?: number, force = false): Promise<any[]> => {
+    if (classId && !force && memoryCache.attendance[classId]) {
+      console.log(`[CACHE] Returning cached attendance for class ${classId}`);
+      // Silent background fetch to update cache for next time
+      attendanceApi.getAll(classId, undefined, true).catch(err => console.warn('[CACHE] Silent attendance background refresh failed:', err));
+      
+      const cached = memoryCache.attendance[classId];
+      return limit ? cached.slice(0, limit) : cached;
+    }
     const headers = await getHeaders();
     let url = `${API_BASE_URL}/attendance`;
     const params = [];
     if (classId) params.push(`class_id=${classId}`);
-    if (limit) params.push(`limit=${limit}`);
+    if (limit && force) params.push(`limit=${limit}`);
     if (params.length > 0) url += `?${params.join('&')}`;
 
     const response = await fetch(url, { headers });
     const data = await handleResponse<any[]>(response);
 
-    return data.map((r: any) => ({
+    const transformed = data.map((r: any) => ({
       id: r.id.toString(),
       studentId: r.student_id.toString(),
       classId: r.class_id?.toString(),
@@ -252,6 +420,13 @@ export const attendanceApi = {
       name: r.name,
       roll_number: r.roll_number,
     }));
+
+    if (classId && !limit) {
+      memoryCache.attendance[classId] = transformed;
+      saveCacheToDisk();
+    }
+
+    return limit ? transformed.slice(0, limit) : transformed;
   },
 
   // Get attendance by date and class
@@ -358,6 +533,12 @@ export const attendanceApi = {
       }),
     });
     const data = await handleResponse<any>(response);
+    
+    // Invalidate local cache
+    delete memoryCache.attendance[classId];
+    delete memoryCache.stats[classId];
+    saveCacheToDisk();
+
     return {
       records: data.records.map((r: any) => ({
         id: r.id.toString(),
@@ -389,7 +570,7 @@ export const attendanceApi = {
     });
 
     const record = await handleResponse<any>(response);
-    return {
+    const transformed = {
       id: record.id.toString(),
       studentId: record.student_id.toString(),
       classId: record.class_id?.toString(),
@@ -397,6 +578,56 @@ export const attendanceApi = {
       status: record.status,
       timestamp: new Date(record.created_at).getTime(),
     };
+
+    // Update local cache
+    if (classId) {
+      if (memoryCache.attendance[classId]) {
+        const filtered = memoryCache.attendance[classId].filter(
+          r => !(r.studentId === studentId && r.date === date)
+        );
+        memoryCache.attendance[classId] = [transformed, ...filtered];
+      } else {
+        memoryCache.attendance[classId] = [transformed];
+      }
+
+      // Update stats cache
+      if (memoryCache.stats[classId]) {
+        const stats = memoryCache.stats[classId];
+        const isPresent = status === 'present';
+        const wasPresent = memoryCache.attendance[classId]?.some(
+          r => r.studentId === studentId && r.date === date && r.status === 'present'
+        );
+        const wasAbsent = memoryCache.attendance[classId]?.some(
+          r => r.studentId === studentId && r.date === date && r.status === 'absent'
+        );
+
+        let newPresent = stats.present;
+        let newAbsent = stats.absent;
+
+        if (isPresent) {
+          if (!wasPresent) {
+            newPresent += 1;
+            if (wasAbsent) newAbsent -= 1;
+          }
+        } else {
+          if (!wasAbsent) {
+            newAbsent += 1;
+            if (wasPresent) newPresent -= 1;
+          }
+        }
+
+        const unmarked = Math.max(0, stats.totalStudents - newPresent - newAbsent);
+        memoryCache.stats[classId] = {
+          ...stats,
+          present: newPresent,
+          absent: newAbsent,
+          unmarked,
+        };
+      }
+      saveCacheToDisk();
+    }
+
+    return transformed;
   },
 
   // End attendance for today (marks unmarked as absent)
@@ -407,7 +638,14 @@ export const attendanceApi = {
       headers,
       body: JSON.stringify({ class_id: parseInt(classId) }),
     });
-    return handleResponse<{ markedAbsent: number; alreadyMarked: number }>(response);
+    const data = await handleResponse<{ markedAbsent: number; alreadyMarked: number }>(response);
+    
+    // Invalidate local cache
+    delete memoryCache.attendance[classId];
+    delete memoryCache.stats[classId];
+    saveCacheToDisk();
+
+    return data;
   },
 
   // Delete attendance records
@@ -422,6 +660,15 @@ export const attendanceApi = {
       body: JSON.stringify({ date }),
     });
     await handleResponse<any>(response);
+
+    if (classId) {
+      delete memoryCache.attendance[classId];
+      delete memoryCache.stats[classId];
+    } else {
+      memoryCache.attendance = {};
+      memoryCache.stats = {};
+    }
+    saveCacheToDisk();
   },
 
   deleteByDate: async (date: string): Promise<void> => {
@@ -432,6 +679,10 @@ export const attendanceApi = {
       body: JSON.stringify({ date }),
     });
     await handleResponse<any>(response);
+
+    memoryCache.attendance = {};
+    memoryCache.stats = {};
+    saveCacheToDisk();
   },
 
   // Bulk mark attendance (Optimized for scanner sync)
@@ -448,27 +699,44 @@ export const attendanceApi = {
       }),
     });
 
-    return handleResponse<{ count: number }>(response);
+    const data = await handleResponse<{ count: number }>(response);
+    
+    // Invalidate local cache
+    delete memoryCache.attendance[classId];
+    delete memoryCache.stats[classId];
+    saveCacheToDisk();
+
+    return data;
   },
-
-
 };
 
 // Stats API
 export const statsApi = {
-  get: async (classId?: string) => {
+  get: async (classId?: string, force = false) => {
+    if (classId && !force && memoryCache.stats[classId]) {
+      console.log(`[CACHE] Returning cached stats for class ${classId}`);
+      // Silent background fetch to update cache for next time
+      statsApi.get(classId, true).catch(err => console.warn('[CACHE] Silent stats background refresh failed:', err));
+      return memoryCache.stats[classId];
+    }
     const headers = await getHeaders();
     let url = `${API_BASE_URL}/stats`;
     if (classId) url += `?class_id=${classId}`;
 
     const response = await fetch(url, { headers });
-    return handleResponse<{
+    const data = await handleResponse<{
       totalStudents: number;
       present: number;
       absent: number;
       unmarked: number;
       date: string;
     }>(response);
+
+    if (classId) {
+      memoryCache.stats[classId] = data;
+      saveCacheToDisk();
+    }
+    return data;
   },
 };
 
@@ -620,7 +888,7 @@ export const faceApi = {
     return await handleResponse(response);
   },
 
-  recognizeGroup: async (base64: string, className: string, date: string): Promise<{ success: boolean; recognized: any[] }> => {
+  recognizeGroup: async (base64: string, className: string, date: string): Promise<{ success: boolean; recognized: any[]; unrecognized_count: number }> => {
     const response = await fetch(`${FACE_API_BASE_URL}/recognize-group`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

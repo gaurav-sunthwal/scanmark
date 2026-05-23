@@ -1,4 +1,4 @@
-import { attendanceApi, faceApi, statsApi, studentsApi } from '@/utils/api';
+import { attendanceApi, faceApi, statsApi, studentsApi, memoryCache } from '@/utils/api';
 import { globalState } from '@/utils/state';
 import { Student } from '@/utils/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,29 +47,67 @@ export default function ScannerScreen() {
   const loadData = useCallback(async () => {
     if (!classId) return;
     try {
-      setLoading(true);
-      const [statsData, studentsData, attendanceData] = await Promise.all([
-        statsApi.get(classId),
-        studentsApi.getAll(classId),
-        attendanceApi.getAll(classId) // Fetch existing records for today
-      ]);
+      const hasCache = memoryCache.stats[classId] && memoryCache.students[classId] && memoryCache.attendance[classId];
 
-      studentsRef.current = studentsData;
+      if (hasCache) {
+        const cachedStats = memoryCache.stats[classId];
+        const cachedStudents = memoryCache.students[classId];
+        const cachedAttendance = memoryCache.attendance[classId];
 
-      // Track who is already marked present today
-      const today = new Date().toISOString().split('T')[0];
-      const todayPresent = attendanceData
-        .filter(r => r.date === today && r.status === 'present')
-        .map(r => r.studentId);
+        studentsRef.current = cachedStudents;
 
-      alreadyMarkedRef.current = new Set(todayPresent);
+        const today = new Date().toISOString().split('T')[0];
+        const todayPresent = cachedAttendance
+          .filter(r => r.date === today && r.status === 'present')
+          .map(r => r.studentId);
 
-      setStats({
-        total: statsData.totalStudents,
-        present: statsData.present,
-        absent: statsData.absent
-      });
-      setLoading(false);
+        alreadyMarkedRef.current = new Set(todayPresent);
+
+        setStats({
+          total: cachedStats.totalStudents,
+          present: cachedStats.present,
+          absent: cachedStats.absent
+        });
+        setLoading(false);
+        console.log('[CACHE] Served scanner data instantly from local cache');
+      } else {
+        setLoading(true);
+      }
+
+      const fetchFreshData = async () => {
+        try {
+          const [statsData, studentsData, attendanceData] = await Promise.all([
+            statsApi.get(classId, true),
+            studentsApi.getAll(classId, true),
+            attendanceApi.getAll(classId, undefined, true)
+          ]);
+
+          studentsRef.current = studentsData;
+
+          const today = new Date().toISOString().split('T')[0];
+          const todayPresent = attendanceData
+            .filter(r => r.date === today && r.status === 'present')
+            .map(r => r.studentId);
+
+          alreadyMarkedRef.current = new Set(todayPresent);
+
+          setStats({
+            total: statsData.totalStudents,
+            present: statsData.present,
+            absent: statsData.absent
+          });
+        } catch (fetchErr) {
+          console.error('Failed to background load scanner data:', fetchErr);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (hasCache) {
+        fetchFreshData(); // Run silently in background
+      } else {
+        await fetchFreshData(); // Blocking load
+      }
     } catch (error) {
       console.error('Failed to load data:', error);
       setLoading(false);
