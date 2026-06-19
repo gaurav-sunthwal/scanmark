@@ -78,23 +78,37 @@ export default function FaceGroupScreen() {
     try {
       const result = await faceApi.recognizeGroup(base64, className, date);
       
-      // Client-side validation: Filter out any students who are not in the current class!
-      let classRecognized = result.recognized;
-      let unrecognizedCountFromOtherClasses = 0;
-
-      if (classId && result.recognized.length > 0) {
-        const students = await studentsApi.getAll(classId);
-        const currentClassStudentIds = new Set(students.map(s => s.id));
-        const currentClassStudentPrns = new Set(students.map(s => s.rollNumber));
-
-        classRecognized = result.recognized.filter((item: any) => {
-          const isRegistered = currentClassStudentIds.has(item.studentId) || currentClassStudentPrns.has(item.prn);
-          if (!isRegistered) {
-            unrecognizedCountFromOtherClasses += 1;
-            console.log(`[FACE-GROUP] Filtered out ${item.name} (${item.prn}) - not in class roster.`);
+      let classRecognized: any[] = [];
+      
+      if (classId && result.recognized && result.recognized.length > 0) {
+        // Fetch current class students and all students globally
+        const classStudents = await studentsApi.getAll(classId);
+        const allStudents = await studentsApi.getAll(undefined, true);
+        
+        for (const item of result.recognized) {
+          // Find student locally in this class
+          let matched = classStudents.find(
+            s => s.rollNumber === item.prn || s.id === item.studentId
+          );
+          
+          // If not in current class, check globally
+          if (!matched) {
+            matched = allStudents.find(
+              s => s.rollNumber === item.prn || s.id === item.studentId
+            );
           }
-          return isRegistered;
-        });
+          
+          if (matched) {
+            classRecognized.push({
+              ...item,
+              studentId: matched.id, // use correct PostgreSQL DB student ID
+              name: matched.name,
+              prn: matched.rollNumber
+            });
+          } else {
+            console.log(`[FACE-GROUP] Filtered out ${item.name} (${item.prn}) - not registered in database.`);
+          }
+        }
       }
       
       // Sync with Next.js database if students were recognized
@@ -108,7 +122,7 @@ export default function FaceGroupScreen() {
       }
 
       setRecognized(classRecognized);
-      setUnrecognizedCount(result.unrecognized_count + unrecognizedCountFromOtherClasses);
+      setUnrecognizedCount(result.unrecognized_count + (result.recognized.length - classRecognized.length));
     } catch (error: any) {
       console.error(error);
       alert(error.message || 'Group recognition failed');

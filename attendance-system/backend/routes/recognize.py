@@ -38,14 +38,6 @@ async def recognize(request: RecognizeRequest):
                 raise HTTPException(status_code=404, detail="Student matched in AI but not found in Database")
             
             matched_student = items[0]
-            
-            # Verify they belong to the requested class
-            if matched_student.get('class') != request.class_name:
-                print(f"DEBUG: Student {matched_prn} found but belongs to class {matched_student.get('class')}, not {request.class_name}")
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Student belongs to class {matched_student.get('class')}, not {request.class_name}"
-                )
         except HTTPException:
             raise
         except Exception as e:

@@ -1,16 +1,18 @@
-import { authApi } from '@/utils/api';
+import { authApi, attendanceApi } from '@/utils/api';
 import { exportTemplateExcel, shareExcelFile } from '@/utils/excel';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as Updates from 'expo-updates';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [user, setUser] = useState<any>(null);
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'up-to-date'>('idle');
 
   const classId = params.classId as string;
   const className = params.className as string;
@@ -42,6 +44,34 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleResetAttendance = () => {
+    if (!classId) {
+      Alert.alert('No Class Selected', 'Please select a class from the home screen first.');
+      return;
+    }
+    Alert.alert(
+      'Reset Today\'s Attendance',
+      `This will delete all attendance records for today in "${className || 'this class'}". This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const today = new Date().toISOString().split('T')[0];
+              await attendanceApi.deleteAll(classId, today);
+              Alert.alert('Done', "Today's attendance has been reset successfully.");
+            } catch (error) {
+              console.error('Failed to reset attendance:', error);
+              Alert.alert('Error', 'Failed to reset attendance. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleDownloadTemplate = async () => {
     try {
       const filePath = await exportTemplateExcel();
@@ -58,6 +88,98 @@ export default function SettingsScreen() {
     });
   };
 
+  const handleCheckForUpdates = async () => {
+    // expo-updates only works in production builds, not in dev mode
+    if (!Updates.isEnabled) {
+      Alert.alert(
+        'Dev Mode',
+        'OTA updates are only available in production builds. Run "eas build" and install that build to use this feature.'
+      );
+      return;
+    }
+
+    try {
+      setUpdateStatus('checking');
+      const update = await Updates.checkForUpdateAsync();
+
+      if (update.isAvailable) {
+        setUpdateStatus('downloading');
+        await Updates.fetchUpdateAsync();
+        setUpdateStatus('ready');
+
+        Alert.alert(
+          'Update Ready',
+          'A new update has been downloaded. Restart the app to apply it?',
+          [
+            { text: 'Later', style: 'cancel', onPress: () => setUpdateStatus('idle') },
+            {
+              text: 'Restart Now',
+              onPress: async () => {
+                await Updates.reloadAsync();
+              },
+            },
+          ]
+        );
+      } else {
+        setUpdateStatus('up-to-date');
+        setTimeout(() => setUpdateStatus('idle'), 3000);
+      }
+    } catch (e) {
+      console.error('Update check failed:', e);
+      setUpdateStatus('idle');
+      Alert.alert('Update Check Failed', 'Make sure you are running a production build (not Expo Go). OTA updates require a standalone build via "eas build".');
+    }
+  };
+
+  const getUpdateIcon = () => {
+    if (updateStatus === 'checking' || updateStatus === 'downloading') {
+      return <ActivityIndicator size="small" color="#7c3aed" />;
+    }
+    if (updateStatus === 'up-to-date') {
+      return <Ionicons name="checkmark-circle" size={20} color="#22c55e" />;
+    }
+    return <Ionicons name="cloud-download-outline" size={20} color="#7c3aed" />;
+  };
+
+  const getUpdateLabel = () => {
+    switch (updateStatus) {
+      case 'checking': return 'Checking...';
+      case 'downloading': return 'Downloading...';
+      case 'ready': return 'Restart to apply';
+      case 'up-to-date': return 'Up to date ✓';
+      default: return 'Check for Updates';
+    }
+  };
+
+  // Reusable row component
+  const SettingRow = ({ 
+    icon, iconColor, iconBg, label, subtitle, onPress, rightElement, isFirst, isLast, disabled 
+  }: {
+    icon: string; iconColor: string; iconBg: string; label: string; subtitle?: string;
+    onPress?: () => void; rightElement?: React.ReactNode; isFirst?: boolean; isLast?: boolean; disabled?: boolean;
+  }) => (
+    <TouchableOpacity
+      style={[
+        styles.row,
+        isFirst && styles.rowFirst,
+        isLast && styles.rowLast,
+        !isLast && styles.rowBorder,
+      ]}
+      onPress={onPress}
+      disabled={disabled || !onPress}
+      activeOpacity={onPress ? 0.6 : 1}
+    >
+      <View style={[styles.rowIcon, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon as any} size={18} color={iconColor} />
+      </View>
+      <View style={styles.rowContent}>
+        <Text style={[styles.rowLabel, disabled && { opacity: 0.5 }]}>{label}</Text>
+        {subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
+      </View>
+      {rightElement || (onPress && <Ionicons name="chevron-forward" size={18} color="#c7c7cc" />)}
+    </TouchableOpacity>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -65,113 +187,118 @@ export default function SettingsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#1e293b" />
+          <Ionicons name="chevron-back" size={28} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* User Info */}
+        {/* User Profile Card */}
         {user && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
-            <View style={styles.settingCard}>
-              <View style={styles.userInfo}>
-                <View style={styles.avatar}>
-                   <Ionicons name="person" size={32} color="#3b82f6" />
-                </View>
-                <View style={styles.userDetails}>
-                  <Text style={styles.userName}>{user.name}</Text>
-                  <Text style={styles.userEmail}>{user.email}</Text>
-                </View>
-              </View>
+          <View style={styles.profileCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {user.name?.charAt(0)?.toUpperCase() || '?'}
+              </Text>
             </View>
+            <Text style={styles.userName}>{user.name}</Text>
+            <Text style={styles.userEmail}>{user.email}</Text>
           </View>
         )}
-        
-        {/* Management Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Management</Text>
-          
-          <TouchableOpacity style={styles.settingCard} onPress={() => navigateTo('/students')}>
-            <View style={styles.settingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: '#f3e8ff' }]}>
-                <Ionicons name="people" size={22} color="#a855f7" />
-              </View>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Manage Students</Text>
-                <Text style={styles.settingDescription}>Import students, edit data, or view list</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
-            </View>
-          </TouchableOpacity>
 
-          <TouchableOpacity style={styles.settingCard} onPress={() => navigateTo('/attendance')}>
-            <View style={styles.settingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: '#fef3c7' }]}>
-                <Ionicons name="document-text" size={22} color="#f59e0b" />
-              </View>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Attendance Records</Text>
-                <Text style={styles.settingDescription}>View and manage history</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingCard} onPress={() => navigateTo('/export')}>
-            <View style={styles.settingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: '#dbeafe' }]}>
-                <Ionicons name="download" size={22} color="#3b82f6" />
-              </View>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Export Data</Text>
-                <Text style={styles.settingDescription}>Download attendance reports</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingCard} onPress={handleDownloadTemplate}>
-            <View style={styles.settingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: '#ecfdf5' }]}>
-                <Ionicons name="document" size={22} color="#10b981" />
-              </View>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Excel Template</Text>
-                <Text style={styles.settingDescription}>Download student import format</Text>
-              </View>
-              <Ionicons name="download-outline" size={20} color="#cbd5e1" />
-            </View>
-          </TouchableOpacity>
+        {/* Quick Actions */}
+        <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+        <View style={styles.card}>
+          <SettingRow
+            icon="people"
+            iconColor="#8b5cf6"
+            iconBg="#f3e8ff"
+            label="Manage Students"
+            subtitle="Import, edit, or view students"
+            onPress={() => navigateTo('/students')}
+            isFirst
+          />
+          <SettingRow
+            icon="school"
+            iconColor="#3b82f6"
+            iconBg="#dbeafe"
+            label="Manage Classes"
+            subtitle="Create or switch classes"
+            onPress={() => router.push('/classes')}
+          />
+          <SettingRow
+            icon="document-text"
+            iconColor="#f59e0b"
+            iconBg="#fef3c7"
+            label="Attendance Records"
+            subtitle="View and manage history"
+            onPress={() => navigateTo('/attendance')}
+            isLast
+          />
         </View>
 
-        {/* Classes Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <TouchableOpacity style={styles.settingCard} onPress={() => router.push('/classes')}>
-            <View style={styles.settingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: '#f1f5f9' }]}>
-                <Ionicons name="school" size={22} color="#64748b" />
-              </View>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Manage Classes</Text>
-                <Text style={styles.settingDescription}>Create or switch current class</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
-            </View>
-          </TouchableOpacity>
+        {/* Data & Export */}
+        <Text style={styles.sectionLabel}>DATA & EXPORT</Text>
+        <View style={styles.card}>
+          <SettingRow
+            icon="download"
+            iconColor="#3b82f6"
+            iconBg="#dbeafe"
+            label="Export Attendance"
+            subtitle="Download reports as Excel"
+            onPress={() => navigateTo('/export')}
+            isFirst
+          />
+          <SettingRow
+            icon="document"
+            iconColor="#10b981"
+            iconBg="#ecfdf5"
+            label="Excel Template"
+            subtitle="Download student import format"
+            onPress={handleDownloadTemplate}
+          />
+          <SettingRow
+            icon="refresh-circle"
+            iconColor="#ef4444"
+            iconBg="#fef2f2"
+            label="Reset Today's Attendance"
+            subtitle={className ? `For "${className}"` : 'Select a class first'}
+            onPress={handleResetAttendance}
+            isLast
+          />
         </View>
-        
-        {/* Logout Button */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={20} color="#ef4444" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-          <Text style={styles.versionText}>ScanMark v1.0.0</Text>
+
+        {/* App */}
+        <Text style={styles.sectionLabel}>APP</Text>
+        <View style={styles.card}>
+          <SettingRow
+            icon="cloud-download"
+            iconColor="#7c3aed"
+            iconBg="#ede9fe"
+            label={getUpdateLabel()}
+            subtitle={
+              updateStatus === 'idle' ? 'Tap to check for new features' :
+              updateStatus === 'up-to-date' ? 'No pending updates' :
+              updateStatus === 'checking' ? 'Looking for updates...' :
+              updateStatus === 'downloading' ? 'Please wait...' :
+              'Restart from the dialog'
+            }
+            onPress={handleCheckForUpdates}
+            disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+            rightElement={getUpdateIcon()}
+            isFirst
+            isLast
+          />
         </View>
+
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.versionText}>ScanMark v1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -180,21 +307,21 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f2f2f7',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   backButton: {
     padding: 4,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#1e293b',
   },
   placeholder: {
@@ -202,73 +329,38 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#94a3b8',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  settingCard: {
+
+  // Profile Card
+  profileCard: {
+    alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    padding: 24,
+    marginBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  settingInfo: {
-    flex: 1,
-  },
-  settingLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  settingDescription: {
-    fontSize: 13,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+    shadowRadius: 4,
+    elevation: 1,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#dbeafe',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#3b82f6',
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  userDetails: {
-    flex: 1,
+  avatarText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   userName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1e293b',
   },
@@ -277,25 +369,98 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 2,
   },
+
+  // Section Label
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 8,
+    marginLeft: 4,
+    letterSpacing: 0.5,
+  },
+
+  // Grouped Card
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+    overflow: 'hidden',
+  },
+
+  // Row
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+  },
+  rowFirst: {
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  rowLast: {
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  rowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e5ea',
+  },
+  rowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  rowContent: {
+    flex: 1,
+  },
+  rowLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1e293b',
+  },
+  rowSubtitle: {
+    fontSize: 13,
+    color: '#8e8e93',
+    marginTop: 1,
+  },
+
+  // Logout
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fee2e2',
-    borderRadius: 16,
-    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
     gap: 8,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
   },
   logoutText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#ef4444',
   },
   versionText: {
     textAlign: 'center',
     fontSize: 12,
-    color: '#cbd5e1',
-    marginTop: 16,
+    color: '#c7c7cc',
+    marginTop: 12,
     marginBottom: 40,
-  }
+  },
 });

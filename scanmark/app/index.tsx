@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, ActivityIndicator } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, ActivityIndicator } from 'react-native';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,7 +19,7 @@ export default function DashboardScreen() {
   const [classes, setClasses] = useState<any[]>([]);
   const [selectedClass, setSelectedClass] = useState<any>(null);
   const [isClassModalVisible, setIsClassModalVisible] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const lastLoadedClassId = useRef<string | null>(null);
   const dataLoaded = useRef(false);
 
@@ -65,32 +65,30 @@ export default function DashboardScreen() {
         // Try reading cached stats and recent activity immediately (0ms wait)
         const hasCache = memoryCache.stats[idStr] && memoryCache.attendance[idStr];
         
-        if (hasCache && !force) {
+        if (hasCache) {
+          // Serve cache instantly, never show skeleton again
           const cachedStats = memoryCache.stats[idStr];
           const cachedAttendance = memoryCache.attendance[idStr].slice(0, 5);
-          
+
           setStats({
             total: cachedStats.totalStudents,
             present: cachedStats.present,
             absent: cachedStats.absent
           });
           setHasStudents(cachedStats.totalStudents > 0);
-          
           setRecentScans(cachedAttendance.map(record => ({
             ...record,
             student: {
               id: record.studentId,
               name: record.name || 'Unknown',
               rollNumber: record.roll_number || '',
-              barcode: '', 
+              barcode: '',
               classId: record.classId || '',
             }
           })));
-          
-          setLoading(false);
-          console.log('[CACHE] Served dashboard instantly from local cache');
+          setInitialLoading(false); // hide skeleton immediately
         } else {
-          setLoading(true);
+          setInitialLoading(true); // only show skeleton if truly no data yet
         }
 
         // Silent/Background Revalidation fetch
@@ -125,24 +123,24 @@ export default function DashboardScreen() {
           } catch (fetchErr) {
             console.error('Failed to background load dashboard data:', fetchErr);
           } finally {
-            setLoading(false);
+            setInitialLoading(false); // only clears skeleton if it was showing
           }
         };
 
         if (hasCache && !force) {
-          fetchFreshData(); // Run silently in background
+          fetchFreshData(); // silent background update, no skeleton
         } else {
-          await fetchFreshData(); // Blocking load
+          await fetchFreshData(); // blocking only on true first load
         }
       } else {
         setStats({ total: 0, present: 0, absent: 0 });
         setRecentScans([]);
         setHasStudents(false);
-        setLoading(false);
+        setInitialLoading(false);
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
-      setLoading(false);
+      setInitialLoading(false);
     }
   }, [params.classId, router]);
 
@@ -170,19 +168,55 @@ export default function DashboardScreen() {
   const progressPercentage = stats.total > 0 ? ((stats.present + stats.absent) / stats.total) * 100 : 0;
   const unmarkedCount = stats.total - stats.present - stats.absent;
 
-  const handleEndSession = async () => {
+  const handleEndSession = () => {
     if (!selectedClass) return;
-    try {
-      setLoading(true);
-      const result = await attendanceApi.endToday(selectedClass.id.toString());
-      alert(`Session ended. ${result.markedAbsent} students marked absent.`);
-      await loadData(undefined, true);
-    } catch (error) {
-      console.error('Failed to end session:', error);
-      alert('Failed to end session. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    Alert.alert(
+      'End Session',
+      `This will mark all remaining unmarked students as absent for today. Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Session',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await attendanceApi.endToday(selectedClass.id.toString());
+              Alert.alert('Done', `Session ended. ${result.markedAbsent} students marked absent.`);
+              await loadData(undefined, true);
+            } catch (error) {
+              console.error('Failed to end session:', error);
+              Alert.alert('Error', 'Failed to end session. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleResetAttendance = () => {
+    if (!selectedClass) return;
+    Alert.alert(
+      'Reset Attendance',
+      'This will delete ALL attendance records for today. This cannot be undone. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const today = new Date().toISOString().split('T')[0];
+              await attendanceApi.deleteAll(selectedClass.id.toString(), today);
+              Alert.alert('Done', "Today's attendance has been reset.");
+              await loadData(undefined, true);
+            } catch (error) {
+              console.error('Failed to reset attendance:', error);
+              Alert.alert('Error', 'Failed to reset attendance. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderSkeleton = () => (
@@ -236,7 +270,7 @@ export default function DashboardScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       
-      {loading && !refreshing ? (
+      {initialLoading ? (
         renderSkeleton()
       ) : (
         <ScrollView 
@@ -338,15 +372,27 @@ export default function DashboardScreen() {
                 : 'All students marked!'}
             </Text>
             
-            {unmarkedCount > 0 && (
-              <TouchableOpacity 
-                style={styles.endSessionButton}
-                onPress={handleEndSession}
-              >
-                <Ionicons name="stop-circle-outline" size={20} color="#64748b" />
-                <Text style={styles.endSessionText}>End Session (Mark Absent)</Text>
-              </TouchableOpacity>
-            )}
+            {/* Session Action Buttons */}
+            <View style={styles.sessionActions}>
+              {unmarkedCount > 0 && (
+                <TouchableOpacity 
+                  style={styles.endSessionButton}
+                  onPress={handleEndSession}
+                >
+                  <Ionicons name="stop-circle-outline" size={18} color="#64748b" />
+                  <Text style={styles.endSessionText}>End Session</Text>
+                </TouchableOpacity>
+              )}
+              {(stats.present > 0 || stats.absent > 0) && (
+                <TouchableOpacity 
+                  style={styles.resetAttendanceButton}
+                  onPress={handleResetAttendance}
+                >
+                  <Ionicons name="refresh-outline" size={18} color="#ef4444" />
+                  <Text style={styles.resetAttendanceText}>Reset Today</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </Animated.View>
         )}
 
@@ -1008,21 +1054,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#92400e',
   },
+  sessionActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
   endSessionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
     paddingVertical: 10,
     backgroundColor: '#f8fafc',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    gap: 8,
+    gap: 6,
   },
   endSessionText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748b',
+    fontWeight: '600',
+  },
+  resetAttendanceButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#fef2f2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    gap: 6,
+  },
+  resetAttendanceText: {
+    fontSize: 13,
+    color: '#ef4444',
     fontWeight: '600',
   },
   // Skeleton Styles

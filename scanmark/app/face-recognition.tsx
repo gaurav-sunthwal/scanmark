@@ -76,25 +76,47 @@ export default function FaceRecognitionScreen() {
     try {
       const result = await faceApi.recognize(base64, className, date);
       
-      // Client-side validation: check if the recognized student belongs to this class!
+      // Find the matching student in the PostgreSQL DB to get their correct database ID
+      let matchedStudent: Student | undefined = undefined;
+      
       if (classId) {
-        const students = await studentsApi.getAll(classId);
-        const isRegistered = students.some(
-          s => s.id === result.studentId || s.rollNumber === result.prn
+        // First check in the current class roster
+        const classStudents = await studentsApi.getAll(classId);
+        matchedStudent = classStudents.find(
+          s => s.rollNumber === result.prn || s.id === result.studentId
         );
-        if (!isRegistered) {
-          throw new Error(`Student "${result.name}" is not registered in this class!`);
+        
+        // If not found in current class, search globally across all classes
+        if (!matchedStudent) {
+          console.log(`[FACE-REC] Student ${result.name} not found in class ${classId}. Searching globally...`);
+          const allStudents = await studentsApi.getAll(undefined, true);
+          matchedStudent = allStudents.find(
+            s => s.rollNumber === result.prn || s.id === result.studentId
+          );
         }
       }
+
+      if (!matchedStudent) {
+        throw new Error(`Student "${result.name}" is not registered in the database!`);
+      }
       
-      setRecognizedStudent(result);
+      // Set the recognized student to show in the UI card using mapped database details
+      const finalStudent = {
+        ...result,
+        studentId: matchedStudent.id,
+        name: matchedStudent.name,
+        prn: matchedStudent.rollNumber
+      };
       
-      // Sync with Next.js database
-      if (result.studentId && classId) {
+      setRecognizedStudent(finalStudent);
+      
+      // Sync with Next.js database using the correct PostgreSQL student ID
+      if (classId) {
         try {
-          await attendanceApi.mark(result.studentId, date, 'present', classId);
+          await attendanceApi.mark(matchedStudent.id, date, 'present', classId);
         } catch (syncError) {
           console.error('Failed to sync face recognition attendance to main DB:', syncError);
+          alert('Face recognized but failed to mark attendance in database.');
         }
       }
     } catch (error: any) {
