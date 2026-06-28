@@ -1,5 +1,5 @@
 import { attendanceApi, faceApi, statsApi, studentsApi, memoryCache } from '@/utils/api';
-import { globalState } from '@/utils/state';
+import { globalState, dashboardEvents } from '@/utils/state';
 import { Student } from '@/utils/types';
 import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
@@ -196,10 +196,20 @@ export default function ScannerScreen() {
       if (!alreadyMarkedRef.current.has(student.id) && !pendingAttendanceRef.current.has(student.id)) {
         console.log(`Marking as NEW local scan: ${student.name}`);
         pendingAttendanceRef.current.add(student.id);
-        setStats(prev => ({
-          ...prev,
-          present: prev.present + 1
-        }));
+        const newStats = {
+          ...stats,
+          present: stats.present + 1
+        };
+        setStats(newStats);
+
+        const newRecord = {
+          id: Math.random().toString(36).substring(2, 11),
+          studentId: student.id,
+          status: 'present' as const,
+          date: new Date().toISOString().split('T')[0],
+          student: student
+        };
+        dashboardEvents.emit('scan', { newRecord, updatedStats: newStats });
       } else {
         console.log(`Already marked present: ${student.name}`);
       }
@@ -261,7 +271,17 @@ export default function ScannerScreen() {
 
         if (!alreadyMarkedRef.current.has(student.id) && !pendingAttendanceRef.current.has(student.id)) {
           pendingAttendanceRef.current.add(student.id);
-          setStats(prev => ({ ...prev, present: prev.present + 1 }));
+          const newStats = { ...stats, present: stats.present + 1 };
+          setStats(newStats);
+
+          const newRecord = {
+            id: Math.random().toString(36).substring(2, 11),
+            studentId: student.id,
+            status: 'present' as const,
+            date: today,
+            student: student
+          };
+          dashboardEvents.emit('scan', { newRecord, updatedStats: newStats });
         }
 
         setTimeout(() => setLastScanned(null), 3000);
@@ -297,12 +317,22 @@ export default function ScannerScreen() {
       // 2. Mark as present locally
       console.log(`Newly created student marked present: ${student.name}`);
       pendingAttendanceRef.current.add(student.id);
-      setStats(prev => ({
-        ...prev,
-        total: prev.total + 1,
-        present: prev.present + 1
-      }));
+      const newStats = {
+        total: stats.total + 1,
+        present: stats.present + 1,
+        absent: stats.absent
+      };
+      setStats(newStats);
       setLastScanned({ student, status: 'present' });
+
+      const newRecord = {
+        id: Math.random().toString(36).substring(2, 11),
+        studentId: student.id,
+        status: 'present' as const,
+        date: new Date().toISOString().split('T')[0],
+        student: student
+      };
+      dashboardEvents.emit('scan', { newRecord, updatedStats: newStats });
 
       // 3. Reset and Close
       setIsAddModalVisible(false);

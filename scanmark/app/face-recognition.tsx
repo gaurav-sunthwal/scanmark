@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
+import { Student } from '@/utils/types';
 import CustomCamera from '@/components/Camera';
 import { faceApi, classesApi, attendanceApi, studentsApi } from '@/utils/api';
 import { Ionicons } from '@expo/vector-icons';

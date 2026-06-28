@@ -4,7 +4,7 @@ import * as schema from './db/schema';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Supabase
+  ssl: { rejectUnauthorized: false } // Required for Supabase / Neon
 });
 
 export const db = drizzle(pool, { schema });

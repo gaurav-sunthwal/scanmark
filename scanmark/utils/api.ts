@@ -6,9 +6,9 @@ import { AttendanceRecord, Student } from './types';
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
 // Set this to true to use production URLs, false for local development
-const IS_PROD = true;
+const IS_PROD = false;
 
-const SERVER_IP = '10.196.250.26';
+const SERVER_IP = '10.234.177.85';
 const API_BASE_URL = IS_PROD
   ? 'https://scanmark-ksrz.vercel.app/api'
   : `http://${SERVER_IP}:3000/api`;

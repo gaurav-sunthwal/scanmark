@@ -59,18 +59,45 @@ const students = [
 
 async function seedStudents() {
   try {
-    console.log('Seeding students...');
-    
-    // Clear existing students first
+    console.log('Seeding database...');
+
+    // 1. Insert default user if not exists
+    let userResult = await pool.query("SELECT id FROM users WHERE email = 'admin@scanmark.com'");
+    let userId;
+    if (userResult.rows.length === 0) {
+      const insertUser = await pool.query(
+        "INSERT INTO users (name, email, password) VALUES ('Admin', 'admin@scanmark.com', 'admin') RETURNING id"
+      );
+      userId = insertUser.rows[0].id;
+      console.log('✓ Default user created');
+    } else {
+      userId = userResult.rows[0].id;
+    }
+
+    // 2. Insert default class if not exists
+    let classResult = await pool.query("SELECT id FROM classes WHERE name = 'Class A' AND user_id = $1", [userId]);
+    let classId;
+    if (classResult.rows.length === 0) {
+      const insertClass = await pool.query(
+        "INSERT INTO classes (name, description, user_id) VALUES ('Class A', 'Default seeded class', $1) RETURNING id",
+        [userId]
+      );
+      classId = insertClass.rows[0].id;
+      console.log('✓ Default class created');
+    } else {
+      classId = classResult.rows[0].id;
+    }
+
+    // 3. Clear existing students/attendance
     await pool.query('DELETE FROM attendance');
     await pool.query('DELETE FROM students');
-    console.log('Cleared existing data');
-    
-    // Insert students
+    console.log('Cleared existing student/attendance data');
+
+    // 4. Insert students
     for (const student of students) {
       await pool.query(
-        'INSERT INTO students (name, roll_number, barcode) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-        [student.name, student.roll_number, student.barcode]
+        'INSERT INTO students (name, roll_number, barcode, user_id, class_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
+        [student.name, student.roll_number, student.barcode, userId, classId]
       );
     }
     

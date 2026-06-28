@@ -1,28 +1,109 @@
 import { AttendanceRecord, Student } from '@/utils/types';
 import { statsApi, studentsApi, attendanceApi, authApi, classesApi, memoryCache } from '@/utils/api';
-import { globalState } from '@/utils/state';
+import { globalState, dashboardEvents } from '@/utils/state';
+import { useDashboardStore } from '@/utils/dashboardStore';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo, memo } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, ActivityIndicator } from 'react-native';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const StatsCards = memo(() => {
+  const stats = useDashboardStore(state => state.stats);
+  return (
+    <View style={styles.statsContainer}>
+      <Animated.View entering={FadeInUp.delay(100)} style={[styles.statCard, styles.totalCard]}>
+        <View style={[styles.iconContainer, { backgroundColor: '#dbeafe' }]}>
+          <Ionicons name="people" size={24} color="#3b82f6" />
+        </View>
+        <Text style={styles.statNumber}>{stats.total}</Text>
+        <Text style={styles.statLabel}>Total Students</Text>
+      </Animated.View>
+
+      <Animated.View entering={FadeInUp.delay(200)} style={[styles.statCard, styles.presentCard]}>
+        <View style={[styles.iconContainer, { backgroundColor: '#dcfce7' }]}>
+          <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
+        </View>
+        <Text style={[styles.statNumber, { color: '#22c55e' }]}>{stats.present}</Text>
+        <Text style={styles.statLabel}>Present</Text>
+      </Animated.View>
+
+      <Animated.View entering={FadeInUp.delay(300)} style={[styles.statCard, styles.absentCard]}>
+        <View style={[styles.iconContainer, { backgroundColor: '#fee2e2' }]}>
+          <Ionicons name="close-circle" size={24} color="#ef4444" />
+        </View>
+        <Text style={[styles.statNumber, { color: '#ef4444' }]}>{stats.absent}</Text>
+        <Text style={styles.statLabel}>Marked Absent</Text>
+      </Animated.View>
+    </View>
+  );
+});
+
+const RecentActivity = memo(({ onSeeAll }: { onSeeAll: () => void }) => {
+  const recentScans = useDashboardStore(state => state.recentScans);
+
+  return (
+    <Animated.View entering={FadeInUp.delay(500)} style={styles.recentContainer}>
+      <View style={styles.recentHeader}>
+        <Text style={styles.sectionTitle}>Recent Activity</Text>
+        <TouchableOpacity onPress={onSeeAll}>
+          <Text style={styles.seeAll}>See All</Text>
+        </TouchableOpacity>
+      </View>
+
+      {recentScans.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="time-outline" size={48} color="#cbd5e1" />
+          <Text style={styles.emptyText}>No scans yet today</Text>
+          <Text style={styles.emptySubtext}>Start by scanning a barcode</Text>
+        </View>
+      ) : (
+        recentScans.map((scan) => (
+          <View key={scan.id} style={styles.recentItem}>
+            <View style={[styles.statusDot, { backgroundColor: scan.status === 'present' ? '#22c55e' : '#ef4444' }]} />
+            <View style={styles.recentInfo}>
+              <Text style={styles.recentName}>{scan.student?.name || 'Unknown'}</Text>
+              <Text style={styles.recentRoll}>{scan.student?.rollNumber || ''}</Text>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: scan.status === 'present' ? '#dcfce7' : '#fee2e2' }]}>
+              <Text style={[styles.statusText, { color: scan.status === 'present' ? '#22c55e' : '#ef4444' }]}>
+                {scan.status === 'present' ? 'Present' : 'Absent'}
+              </Text>
+            </View>
+          </View>
+        ))
+      )}
+    </Animated.View>
+  );
+});
+
 export default function DashboardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
-  const [recentScans, setRecentScans] = useState<(AttendanceRecord & { student?: Student })[]>([]);
+
+  // Zustand State Selector
+  const stats = useDashboardStore(state => state.stats);
+  const classes = useDashboardStore(state => state.classes);
+  const selectedClass = useDashboardStore(state => state.selectedClass);
+  const hasStudents = useDashboardStore(state => state.hasStudents);
+  const initialLoading = useDashboardStore(state => state.initialLoading);
+
+  // Local UI States
   const [refreshing, setRefreshing] = useState(false);
-  const [hasStudents, setHasStudents] = useState(false);
-  const [classes, setClasses] = useState<any[]>([]);
-  const [selectedClass, setSelectedClass] = useState<any>(null);
   const [isClassModalVisible, setIsClassModalVisible] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
+
   const lastLoadedClassId = useRef<string | null>(null);
   const dataLoaded = useRef(false);
 
+  // Maintain params ref to avoid recreation of loadData
+  const paramsRef = useRef(params);
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
+
+  // Load Data with stable dependencies
   const loadData = useCallback(async (classId?: string, force = false) => {
     try {
       const isLoggedIn = await authApi.isLoggedIn();
@@ -33,10 +114,10 @@ export default function DashboardScreen() {
 
       // 1. Get classes. Memory cached so resolves instantly.
       const allClasses = await classesApi.getAll();
-      setClasses(allClasses);
+      useDashboardStore.getState().setData({ classes: allClasses });
 
       let activeClass = null;
-      const targetId = classId || params.classId as string;
+      const targetId = classId || paramsRef.current.classId as string;
       const lastSelectedId = await classesApi.getSelectedClassId();
       
       if (targetId) {
@@ -45,8 +126,9 @@ export default function DashboardScreen() {
         activeClass = allClasses.find(c => c.id.toString() === lastSelectedId);
       }
       
-      if (!activeClass && selectedClass) {
-        activeClass = allClasses.find(c => c.id === selectedClass.id);
+      const currentSelectedClass = useDashboardStore.getState().selectedClass;
+      if (!activeClass && currentSelectedClass) {
+        activeClass = allClasses.find(c => c.id === currentSelectedClass.id);
       }
       
       if (!activeClass && allClasses.length > 0) {
@@ -54,7 +136,7 @@ export default function DashboardScreen() {
       }
       
       if (activeClass) {
-        setSelectedClass(activeClass);
+        useDashboardStore.getState().setData({ selectedClass: activeClass });
         await classesApi.setSelectedClassId(activeClass.id.toString());
       }
 
@@ -70,25 +152,27 @@ export default function DashboardScreen() {
           const cachedStats = memoryCache.stats[idStr];
           const cachedAttendance = memoryCache.attendance[idStr].slice(0, 5);
 
-          setStats({
-            total: cachedStats.totalStudents,
-            present: cachedStats.present,
-            absent: cachedStats.absent
+          useDashboardStore.getState().setData({
+            stats: {
+              total: cachedStats.totalStudents,
+              present: cachedStats.present,
+              absent: cachedStats.absent
+            },
+            hasStudents: cachedStats.totalStudents > 0,
+            recentScans: cachedAttendance.map(record => ({
+              ...record,
+              student: {
+                id: record.studentId,
+                name: record.name || 'Unknown',
+                rollNumber: record.roll_number || '',
+                barcode: '',
+                classId: record.classId || '',
+              }
+            })),
+            initialLoading: false
           });
-          setHasStudents(cachedStats.totalStudents > 0);
-          setRecentScans(cachedAttendance.map(record => ({
-            ...record,
-            student: {
-              id: record.studentId,
-              name: record.name || 'Unknown',
-              rollNumber: record.roll_number || '',
-              barcode: '',
-              classId: record.classId || '',
-            }
-          })));
-          setInitialLoading(false); // hide skeleton immediately
         } else {
-          setInitialLoading(true); // only show skeleton if truly no data yet
+          useDashboardStore.getState().setData({ initialLoading: true });
         }
 
         // Silent/Background Revalidation fetch
@@ -98,13 +182,6 @@ export default function DashboardScreen() {
               statsApi.get(idStr, true),
               attendanceApi.getAll(idStr, 5, true),
             ]);
-            
-            setStats({
-              total: statsData.totalStudents,
-              present: statsData.present,
-              absent: statsData.absent
-            });
-            setHasStudents(statsData.totalStudents > 0);
             
             const recent = recentAttendance.map(record => ({
               ...record,
@@ -117,13 +194,21 @@ export default function DashboardScreen() {
               }
             }));
             
-            setRecentScans(recent);
+            useDashboardStore.getState().setData({
+              stats: {
+                total: statsData.totalStudents,
+                present: statsData.present,
+                absent: statsData.absent
+              },
+              hasStudents: statsData.totalStudents > 0,
+              recentScans: recent,
+              initialLoading: false
+            });
             lastLoadedClassId.current = idStr;
             dataLoaded.current = true;
           } catch (fetchErr) {
             console.error('Failed to background load dashboard data:', fetchErr);
-          } finally {
-            setInitialLoading(false); // only clears skeleton if it was showing
+            useDashboardStore.getState().setData({ initialLoading: false });
           }
         };
 
@@ -133,16 +218,34 @@ export default function DashboardScreen() {
           await fetchFreshData(); // blocking only on true first load
         }
       } else {
-        setStats({ total: 0, present: 0, absent: 0 });
-        setRecentScans([]);
-        setHasStudents(false);
-        setInitialLoading(false);
+        useDashboardStore.getState().setData({
+          stats: { total: 0, present: 0, absent: 0 },
+          recentScans: [],
+          hasStudents: false,
+          initialLoading: false
+        });
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
-      setInitialLoading(false);
+      useDashboardStore.getState().setData({ initialLoading: false });
     }
-  }, [params.classId, router]);
+  }, [router]);
+
+  // Subscribe to real-time events from scanner
+  useEffect(() => {
+    const handler = ({ newRecord, updatedStats }: { newRecord: any; updatedStats: any }) => {
+      const currentSelectedClass = useDashboardStore.getState().selectedClass;
+      if (currentSelectedClass && newRecord.student?.classId?.toString() === currentSelectedClass.id.toString()) {
+        const currentRecent = useDashboardStore.getState().recentScans;
+        useDashboardStore.getState().setData({
+          stats: updatedStats,
+          recentScans: [newRecord, ...currentRecent].slice(0, 5),
+        });
+      }
+    };
+    dashboardEvents.on('scan', handler);
+    return () => dashboardEvents.off('scan', handler);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -165,11 +268,15 @@ export default function DashboardScreen() {
     await loadData(cls.id.toString(), true);
   };
 
-  const progressPercentage = stats.total > 0 ? ((stats.present + stats.absent) / stats.total) * 100 : 0;
-  const unmarkedCount = stats.total - stats.present - stats.absent;
+  // derived values (only recalcs when stats change)
+  const { progressPercentage, unmarkedCount } = useMemo(() => ({
+    progressPercentage: stats.total > 0 ? ((stats.present + stats.absent) / stats.total) * 100 : 0,
+    unmarkedCount: stats.total - stats.present - stats.absent,
+  }), [stats.total, stats.present, stats.absent]);
 
   const handleEndSession = () => {
-    if (!selectedClass) return;
+    const selectedClassVal = useDashboardStore.getState().selectedClass;
+    if (!selectedClassVal) return;
     Alert.alert(
       'End Session',
       `This will mark all remaining unmarked students as absent for today. Continue?`,
@@ -180,7 +287,7 @@ export default function DashboardScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const result = await attendanceApi.endToday(selectedClass.id.toString());
+              const result = await attendanceApi.endToday(selectedClassVal.id.toString());
               Alert.alert('Done', `Session ended. ${result.markedAbsent} students marked absent.`);
               await loadData(undefined, true);
             } catch (error) {
@@ -194,7 +301,8 @@ export default function DashboardScreen() {
   };
 
   const handleResetAttendance = () => {
-    if (!selectedClass) return;
+    const selectedClassVal = useDashboardStore.getState().selectedClass;
+    if (!selectedClassVal) return;
     Alert.alert(
       'Reset Attendance',
       'This will delete ALL attendance records for today. This cannot be undone. Are you sure?',
@@ -206,7 +314,7 @@ export default function DashboardScreen() {
           onPress: async () => {
             try {
               const today = new Date().toISOString().split('T')[0];
-              await attendanceApi.deleteAll(selectedClass.id.toString(), today);
+              await attendanceApi.deleteAll(selectedClassVal.id.toString(), today);
               Alert.alert('Done', "Today's attendance has been reset.");
               await loadData(undefined, true);
             } catch (error) {
@@ -218,6 +326,17 @@ export default function DashboardScreen() {
       ]
     );
   };
+
+  const handleSeeAll = useCallback(() => {
+    const selectedClassVal = useDashboardStore.getState().selectedClass;
+    router.push({
+      pathname: '/attendance',
+      params: { 
+        classId: selectedClassVal?.id?.toString(),
+        className: selectedClassVal?.name
+      }
+    });
+  }, [router]);
 
   const renderSkeleton = () => (
     <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -330,31 +449,7 @@ export default function DashboardScreen() {
           <>
 
         {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <Animated.View entering={FadeInUp.delay(100)} style={[styles.statCard, styles.totalCard]}>
-            <View style={[styles.iconContainer, { backgroundColor: '#dbeafe' }]}>
-              <Ionicons name="people" size={24} color="#3b82f6" />
-            </View>
-            <Text style={styles.statNumber}>{stats.total}</Text>
-            <Text style={styles.statLabel}>Total Students</Text>
-          </Animated.View>
-
-          <Animated.View entering={FadeInUp.delay(200)} style={[styles.statCard, styles.presentCard]}>
-            <View style={[styles.iconContainer, { backgroundColor: '#dcfce7' }]}>
-              <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
-            </View>
-            <Text style={[styles.statNumber, { color: '#22c55e' }]}>{stats.present}</Text>
-            <Text style={styles.statLabel}>Present</Text>
-          </Animated.View>
-
-          <Animated.View entering={FadeInUp.delay(300)} style={[styles.statCard, styles.absentCard]}>
-            <View style={[styles.iconContainer, { backgroundColor: '#fee2e2' }]}>
-              <Ionicons name="close-circle" size={24} color="#ef4444" />
-            </View>
-            <Text style={[styles.statNumber, { color: '#ef4444' }]}>{stats.absent}</Text>
-            <Text style={styles.statLabel}>Marked Absent</Text>
-          </Animated.View>
-        </View>
+        <StatsCards />
 
         {/* Progress Bar */}
         {stats.total > 0 && (
@@ -495,40 +590,7 @@ export default function DashboardScreen() {
         </Animated.View>
 
         {/* Recent Activity */}
-        <Animated.View entering={FadeInUp.delay(500)} style={styles.recentContainer}>
-          <View style={styles.recentHeader}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <TouchableOpacity onPress={() => router.push({
-              pathname: '/attendance',
-              params: { classId: selectedClass?.id?.toString(), className: selectedClass?.name }
-            })}>
-              <Text style={styles.seeAll}>See All</Text>
-            </TouchableOpacity>
-          </View>
-
-          {recentScans.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="time-outline" size={48} color="#cbd5e1" />
-              <Text style={styles.emptyText}>No scans yet today</Text>
-              <Text style={styles.emptySubtext}>Start by scanning a barcode</Text>
-            </View>
-          ) : (
-            recentScans.map((scan, index) => (
-              <View key={scan.id} style={styles.recentItem}>
-                <View style={[styles.statusDot, { backgroundColor: scan.status === 'present' ? '#22c55e' : '#ef4444' }]} />
-                <View style={styles.recentInfo}>
-                  <Text style={styles.recentName}>{scan.student?.name || 'Unknown'}</Text>
-                  <Text style={styles.recentRoll}>{scan.student?.rollNumber || ''}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: scan.status === 'present' ? '#dcfce7' : '#fee2e2' }]}>
-                  <Text style={[styles.statusText, { color: scan.status === 'present' ? '#22c55e' : '#ef4444' }]}>
-                    {scan.status === 'present' ? 'Present' : 'Absent'}
-                  </Text>
-                </View>
-              </View>
-            ))
-          )}
-        </Animated.View>
+        <RecentActivity onSeeAll={handleSeeAll} />
 
         {/* Setup Warning */}
         {!hasStudents && (
