@@ -6,11 +6,11 @@ import { AttendanceRecord, Student } from './types';
 // For local development: http://localhost:3000
 // For production: your deployed backend URL
 // Set this to true to use production URLs, false for local development
-const IS_PROD = false;
+const IS_PROD = true;
 
 const SERVER_IP = '10.169.181.85';
 const API_BASE_URL = IS_PROD
-  ? 'https://scanmark-ksrz.vercel.app/api'
+  ? 'https://scanmark-nine.vercel.app/api'
   : `http://${SERVER_IP}:3000/api`;
 
 // Always use the deployed Render cloud API to save local resources on your Mac
