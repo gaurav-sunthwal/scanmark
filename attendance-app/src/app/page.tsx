@@ -1,4 +1,36 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+
 export default function Home() {
+  const [status, setStatus] = useState<'checking' | 'connected' | 'error'>(
+    'checking',
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data) => {
+        if (active) {
+          setStatus(data.status === 'connected' ? 'connected' : 'error');
+        }
+      })
+      .catch(() => {
+        if (active) setStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const statusLabel =
+    status === 'connected'
+      ? 'Connected'
+      : status === 'error'
+        ? 'Disconnected'
+        : 'Checking…';
+
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <div className="w-full max-w-md text-center">
@@ -38,7 +70,19 @@ export default function Home() {
           >
             Get started
           </a>
-          
+        </div>
+
+        <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-foreground/10 px-3 py-1.5 text-xs text-foreground/60">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              status === 'connected'
+                ? 'bg-green-500'
+                : status === 'error'
+                  ? 'bg-red-500'
+                  : 'bg-yellow-500'
+            }`}
+          />
+          Status: {statusLabel}
         </div>
       </div>
 
